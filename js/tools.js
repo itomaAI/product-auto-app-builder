@@ -103,8 +103,12 @@ class ToolExecutor {
             case 'report':
                 return null; 
 
+            // 未定義タグに対しては何もしない
             default:
-                return { type: 'text', value: `[System Warning] Unknown tag <${tag}> ignored.` };
+                return null;
+
+            // default:
+            //     return { type: 'text', value: `[System Warning] Unknown tag <${tag}> ignored.` };
         }
     }
 
