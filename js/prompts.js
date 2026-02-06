@@ -110,7 +110,8 @@ Content:
     - Empty for "delete".
 Critical Rules:
     1. **VERIFY FIRST**: You MUST use <read_file line_numbers="true"> immediately before editing to ensure you have the latest line numbers.
-    2. **NO GUESSING**: Do not guess line numbers. If you are unsure, read the file again.
+    2. **ONE EDIT PER FILE**: You MUST NOT edit the SAME file multiple times in a single turn. The first edit changes line numbers, causing subsequent edits to fail. Wait for the tool output.
+    3. **NO GUESSING**: Do not guess line numbers. If you are unsure, read the file again.
 Mode Behaviors:
     - mode="replace": Replaces the lines from 'start' to 'end' (inclusive) with the new content.
     - mode="insert_after": Inserts the new content strictly AFTER the line specified in 'end'. ('start' attribute is ignored).
