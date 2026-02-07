@@ -7,6 +7,49 @@ class ToolExecutor {
     }
 
     async execute(tree) {
+        // --- Pre-process: Reorder edit_file commands ---
+        //同一ファイルへの複数編集がある場合、後ろの行から実行しないと行番号がずれるため、
+        //実行前に「パスごと」かつ「開始行の降順」にソートして再配置する。
+        
+        const edits = [];
+        const others = [];
+        let insertIndex = -1;
+
+        // 1. 分離 (edit_file と それ以外)
+        for (const item of tree) {
+            if (item.tag === 'edit_file') {
+                if (insertIndex === -1) insertIndex = others.length;
+                edits.push(item);
+            } else {
+                others.push(item);
+            }
+        }
+
+        // 2. edit_file がある場合のみソートして統合
+        if (edits.length > 0) {
+            edits.sort((a, b) => {
+                const pathA = a.attributes.path || "";
+                const pathB = b.attributes.path || "";
+                
+                // パスが違うなら、パス名でまとめておく（ファイルシステム的な順序）
+                if (pathA !== pathB) {
+                    return pathA.localeCompare(pathB);
+                }
+                
+                // パスが同じなら、開始行の「降順（大きい順）」にする
+                const startA = parseInt(a.attributes.start || 0);
+                const startB = parseInt(b.attributes.start || 0);
+                return startB - startA;
+            });
+
+            // 最初に edit_file が出現した位置に、ソート済みの全編集コマンドを挿入
+            others.splice(insertIndex, 0, ...edits);
+            
+            // ツリーを差し替え
+            tree = others;
+        }
+        // ------------------------------------------------
+
         const results = [];
         let previewRequested = false;
 
