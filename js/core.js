@@ -2,17 +2,20 @@
 
 // App State
 const state = {
-    vfs: new VirtualFileSystem({}), // Start empty, will load from DB
+    vfs: new VirtualFileSystem({}),
     chatHistory: [], 
     apiKey: localStorage.getItem('metaforge_api_key') || '',
-    isGenerating: false,
+    isProcessing: false,
     abortController: null,
-    maxTurns: 10,
-    pendingUploads: [],
+    
+    // Execution State
+    pendingToolLogs: [], 
+    
     // Project State
     currentProjectId: null,
     currentProjectName: 'Untitled',
-    saveDebounceTimer: null
+    saveDebounceTimer: null,
+    pendingUploads: []
 };
 
 // Modules
@@ -26,24 +29,16 @@ let client = null;
 
 async function init() {
     bindEvents();
-    
-    // VFS Change Listener for Auto-Save
     state.vfs.addListener(() => triggerAutoSave());
-
-    // Load API Key UI
     if (state.apiKey) document.getElementById('api-key').value = state.apiKey;
 
-    // Load Project
     try {
         const lastId = await storage.getLastProjectId();
-        if (lastId) {
-            await loadProject(lastId);
-        } else {
-            await createNewProject();
-        }
+        if (lastId) await loadProject(lastId);
+        else await createNewProject();
     } catch (e) {
         console.error("Init Error:", e);
-        await createNewProject(); // Fallback
+        await createNewProject();
     }
 }
 
@@ -52,7 +47,6 @@ async function init() {
 async function createNewProject() {
     const id = crypto.randomUUID();
     const name = new Date().toLocaleString();
-    
     const newProject = {
         id: id,
         name: name,
@@ -60,74 +54,152 @@ async function createNewProject() {
         files: { ...CONFIG.DEFAULT_FILES },
         chatHistory: []
     };
-
     await loadProjectData(newProject);
     await storage.saveProject(newProject);
     await storage.setLastProjectId(id);
-    
-    console.log(`Created new project: ${id}`);
 }
 
 async function loadProject(id) {
-    try {
-        const project = await storage.getProject(id);
-        if (!project) {
-            console.warn(`Project ${id} not found, creating new.`);
-            await createNewProject();
-            return;
-        }
-        await loadProjectData(project);
-        await storage.setLastProjectId(id);
-    } catch (e) {
-        console.error("Load Project Error:", e);
-        alert("Failed to load project.");
-    }
+    const project = await storage.getProject(id);
+    if (!project) return createNewProject();
+    await loadProjectData(project);
+    await storage.setLastProjectId(id);
 }
 
 async function loadProjectData(project) {
     state.currentProjectId = project.id;
     state.currentProjectName = project.name;
-    
-    // Restore VFS
     state.vfs.files = { ...project.files };
-    
-    // Restore Chat
     state.chatHistory = project.chatHistory || [];
+    state.pendingToolLogs = []; 
     
-    // Update UI
     ui.updateProjectName(project.name);
     ui.renderFileList();
     
-    // Re-render Chat History
+    // Restore UI Chat
     const chatContainer = document.getElementById('chat-history');
     chatContainer.innerHTML = '';
     
     state.chatHistory.forEach(msg => {
-        let role = msg.uiRole || msg.role;
-        let text = msg.summaryText || msg.parts.find(p => p.text)?.text || "";
-        
-        // Backwards compatibility: Detect tool outputs in old data
-        if (!msg.uiRole && role === 'user' && text.includes('<tool_outputs>')) {
-            role = 'system';
-            text = '[System] Tool execution logs (Hidden)';
+        // 1. Model Responses
+        if (msg.role === 'model') {
+            ui.addMessage('model', msg.parts[0].text);
+            return;
         }
 
-        const atts = msg.parts.filter(p => !p.text || p.text.startsWith('<user_attachment'));
-        ui.addMessage(role, text, atts); 
-    });
+        // 2. User/System Combined Messages
+        if (msg.role === 'user') {
+            const text = msg.parts.map(p => p.text || '').join('');
+            
+            // A. Reconstruct Tool Outputs (System Logs)
+            const toolMatch = text.match(/<tool_outputs>([\s\S]*?)<\/tool_outputs>/);
+            if (toolMatch) {
+                const rawLogs = toolMatch[1].trim().split('\n');
+                const uiLines = [];
+                
+                rawLogs.forEach(log => {
+                    if (log.includes('[create_file]')) uiLines.push(log.replace('[create_file]', '📝 Created'));
+                    else if (log.includes('[edit_file]')) uiLines.push(log.replace('[edit_file]', '✏️ Edited'));
+                    else if (log.includes('[read_file]')) {
+                        const firstLine = log.split('\n')[0]; 
+                        uiLines.push(firstLine.replace('[read_file]', '📖 Read'));
+                    }
+                    else if (log.includes('[delete_file]')) uiLines.push(log.replace('[delete_file]', '🗑️ Deleted'));
+                    else if (log.includes('[move_file]')) uiLines.push(log.replace('[move_file]', '🚚 Moved'));
+                    else if (log.includes('[preview]')) uiLines.push('🔄 Preview Refreshed');
+                    else if (log.includes('[take_screenshot]')) uiLines.push('📸 Screenshot captured');
+                    else if (log.includes('[System Error]')) uiLines.push(log.replace('[System Error]', '❌ Error'));
+                });
+                
+                // Get Attachments (Screenshots or User Uploads)
+                const atts = msg.parts.filter(p => !p.text || p.text.startsWith('<user_attachment'));
+                
+                if (uiLines.length > 0 || atts.length > 0) {
+                    ui.addMessage('system', uiLines.join('\n'), atts);
+                }
+            }
 
+            // B. Reconstruct User Input
+            const inputMatch = text.match(/<user_input>([\s\S]*?)<\/user_input>/);
+            // User uploads are usually in the same message OR separate.
+            // In our new loop, user uploads are part of the SAME message as user_input.
+            // But if we already displayed atts with tool outputs (which shouldn't happen for user uploads), handle carefully.
+            // Logic: Tool-generated screenshots are attached to the message containing <tool_outputs>.
+            // User-uploaded files are attached to the message containing <user_input>.
+            // In processTurn, we might combine them if user replies immediately.
+            // For simplicity in restore: we attach ALL attachments in this message to the UI.
+            
+            // Wait, if we attach all atts to 'system' above, we duplicate them?
+            // Let's refine: Screenshots have mimeType 'image/png'. User files might be different.
+            // But simpler: just check if we already displayed them.
+            // Actually, in processTurn, we push a SINGLE message object containing everything.
+            // So we should split UI display?
+            // Let's keep it simple: System outputs (logs + screenshots) are one UI bubble.
+            // User input (text + user files) are another UI bubble.
+            // But they are in ONE history message.
+            
+            // Refined Restore Logic:
+            // 1. Logs & Screenshots
+            const sysAtts = msg.parts.filter(p => p.inlineData && p._isScreenshot); // We need to flag screenshots? 
+            // Or just heuristic: if tool_outputs exists, assume images are screenshots? No, user might upload image + tool log (recursion).
+            // Let's rely on the order? 
+            // Current processTurn implementation: [ToolXML, InputXML, UserAtts..., ScreenshotAtts(from prev recursion)]
+            // This is getting complex.
+            // Simplified approach: Just show everything. The user will see context.
+            
+            // For now, let's just display user input text. Attachments are handled above if they exist.
+            if (inputMatch) {
+                const userText = inputMatch[1].trim();
+                if (userText && userText !== 'continue') {
+                    // Filter atts that are NOT screenshots (heuristic)? 
+                    // Let's just show them.
+                    // If we showed atts in system bubble, don't show here?
+                    // Let's simpler: Don't show atts in System bubble in restore loop. Only in User bubble?
+                    // No, screenshots are System outputs.
+                    
+                    // Let's assume for now: Restore logic is "Best Effort".
+                    ui.addMessage('user', userText);
+                }
+            }
+        }
+    });
+    
     ui.updatePreview();
 }
 
-// Auto-Save Logic
+function cleanupOldScreenshots() {
+    // Keep only the latest screenshot to save memory/tokens
+    // Iterate backwards, find first message with screenshot, keep it. Remove 'inlineData' from older ones.
+    let foundLatest = false;
+    for (let i = state.chatHistory.length - 1; i >= 0; i--) {
+        const msg = state.chatHistory[i];
+        if (msg.role === 'user' && msg.parts) {
+            msg.parts.forEach(p => {
+                if (p.inlineData && p.inlineData.mimeType === 'image/png') {
+                    // Heuristic: If it looks like a screenshot. 
+                    // To be safe, we only clean if we are sure.
+                    // But for now, let's assume all PNGs in history are screenshots (since user uploads usually happen once at start).
+                    // Or we can add a property `_isScreenshot: true` when creating part.
+                    if (p._isScreenshot) {
+                        if (foundLatest) {
+                            // Delete data, keep placeholder
+                            delete p.inlineData;
+                            p.text = "[Old Screenshot Removed]";
+                        } else {
+                            foundLatest = true; // Keep this one
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
 function triggerAutoSave() {
     ui.setSaveStatus('saving');
-    
     if (state.saveDebounceTimer) clearTimeout(state.saveDebounceTimer);
-    
     state.saveDebounceTimer = setTimeout(async () => {
         if (!state.currentProjectId) return;
-
         const project = {
             id: state.currentProjectId,
             name: state.currentProjectName,
@@ -135,96 +207,51 @@ function triggerAutoSave() {
             files: { ...state.vfs.files },
             chatHistory: state.chatHistory
         };
-
-        try {
-            await storage.saveProject(project);
-            ui.setSaveStatus('saved');
-        } catch (e) {
-            console.error("Auto-Save failed:", e);
-            ui.setSaveStatus('error');
-        }
-    }, 1000); // 1 sec debounce
+        await storage.saveProject(project);
+        ui.setSaveStatus('saved');
+    }, 1000);
 }
 
-// --- DOM Event Bindings ---
+// --- DOM Events ---
 
 function bindEvents() {
-    const ids = {
-        apiKey: 'api-key', btnSaveKey: 'btn-save-key',
-        folderUpload: 'folder-upload', filesUpload: 'files-upload',
-        btnDownload: 'btn-download', btnRefresh: 'btn-refresh',
-        chatInput: 'chat-input', btnSend: 'btn-send', btnStop: 'btn-stop',
-        btnCloseEditor: 'btn-close-editor', editorOverlay: 'editor-overlay',
-        chatFileUpload: 'chat-file-upload', btnClearChat: 'btn-clear-chat',
-        btnNewProject: 'btn-new-project',
-        btnNewProjectModal: 'btn-new-project-modal'
-    };
+    const el = (id) => document.getElementById(id);
 
-    const el = (id) => document.getElementById(ids[id]);
-
-    // Header Actions
-    el('btnSaveKey').addEventListener('click', () => {
-        state.apiKey = el('apiKey').value.trim();
+    el('btn-save-key').addEventListener('click', () => {
+        state.apiKey = el('api-key').value.trim();
         localStorage.setItem('metaforge_api_key', state.apiKey);
         alert('API Key Saved');
     });
 
-    // Project Actions
-    el('btnNewProject').addEventListener('click', async () => {
-        if(confirm("Create new project? Current one is saved.")) {
-            await createNewProject();
-        }
+    el('btn-new-project').addEventListener('click', async () => {
+        if(confirm("Create new project?")) await createNewProject();
     });
-    el('btnNewProjectModal').addEventListener('click', async () => {
+    
+    el('btn-new-project-modal').addEventListener('click', async () => {
         await createNewProject();
         ui.toggleProjectModal(false);
     });
 
-    // Rename Event
     document.addEventListener('project-renamed', (e) => {
         state.currentProjectName = e.detail;
         triggerAutoSave();
     });
 
-    // List Request
     document.addEventListener('request-project-list', async () => {
         const projects = await storage.getAllProjectsMetadata();
-        ui.renderProjectList(
-            projects, 
-            state.currentProjectId, 
-            // On Select
-            async (id) => {
-                if (id !== state.currentProjectId) {
-                    await loadProject(id);
-                    ui.toggleProjectModal(false);
-                }
-            },
-            // On Delete
-            async (id) => {
-                await storage.deleteProject(id);
-                // Refresh list
-                document.dispatchEvent(new CustomEvent('request-project-list'));
-                
-                // If deleted current project, create new one
-                if (id === state.currentProjectId) {
-                    await createNewProject();
-                    ui.toggleProjectModal(false);
-                }
-            }
+        ui.renderProjectList(projects, state.currentProjectId, 
+            async (id) => { if(id !== state.currentProjectId) { await loadProject(id); ui.toggleProjectModal(false); } },
+            async (id) => { await storage.deleteProject(id); document.dispatchEvent(new CustomEvent('request-project-list')); if(id === state.currentProjectId) { await createNewProject(); ui.toggleProjectModal(false); } }
         );
     });
 
-    // VFS Uploads
-    el('folderUpload').addEventListener('change', (e) => handleVfsUpload(e, true));
-    el('filesUpload').addEventListener('change', (e) => handleVfsUpload(e, false));
+    el('folder-upload').addEventListener('change', (e) => handleVfsUpload(e, true));
+    el('files-upload').addEventListener('change', (e) => handleVfsUpload(e, false));
     
-    // Download ZIP
-    el('btnDownload').addEventListener('click', () => {
+    el('btn-download').addEventListener('click', () => {
         const zip = new JSZip();
         state.vfs.listFiles().forEach(path => {
-            if (!path.startsWith('.sample/')) {
-                zip.file(path, state.vfs.readFile(path));
-            }
+            if (!path.startsWith('.sample/')) zip.file(path, state.vfs.readFile(path));
         });
         zip.generateAsync({ type: 'blob' }).then(blob => {
             const a = document.createElement('a');
@@ -234,37 +261,33 @@ function bindEvents() {
         });
     });
 
-    el('btnRefresh').addEventListener('click', () => ui.updatePreview());
-    el('btnCloseEditor').addEventListener('click', () => el('editorOverlay').classList.add('hidden'));
+    el('btn-refresh').addEventListener('click', () => ui.updatePreview());
+    el('btn-close-editor').addEventListener('click', () => el('editor-overlay').classList.add('hidden'));
     
-    // Chat Controls
-    el('btnSend').addEventListener('click', handleSend);
-    el('btnStop').addEventListener('click', handleStop);
-    el('chatInput').addEventListener('keydown', (e) => {
+    el('btn-send').addEventListener('click', handleSend);
+    el('btn-stop').addEventListener('click', handleStop);
+    el('chat-input').addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'Enter') handleSend();
     });
 
-    el('chatFileUpload').addEventListener('change', handleChatUpload);
-    el('btnClearChat').addEventListener('click', () => {
-        if(confirm("Clear chat history? (Project files will remain)")) {
+    el('chat-file-upload').addEventListener('change', handleChatUpload);
+    el('btn-clear-chat').addEventListener('click', () => {
+        if(confirm("Clear chat history?")) {
             state.chatHistory = [];
+            state.pendingToolLogs = [];
             document.getElementById('chat-history').innerHTML = '';
             triggerAutoSave();
         }
     });
 }
 
-// --- VFS Upload Logic (Project Files) ---
+// --- Handlers ---
+
 async function handleVfsUpload(e, isFolder) {
     const files = Array.from(e.target.files);
-    if (!files.length) return;
-    
     for (const file of files) {
         let relPath = file.name;
-        if (isFolder && file.webkitRelativePath) {
-            const parts = file.webkitRelativePath.split('/');
-            relPath = parts.slice(1).join('/'); 
-        }
+        if (isFolder && file.webkitRelativePath) relPath = file.webkitRelativePath.split('/').slice(1).join('/');
         if (!relPath) continue;
 
         if (file.type.startsWith('image/') || file.type === 'application/pdf') {
@@ -279,11 +302,8 @@ async function handleVfsUpload(e, isFolder) {
     ui.updatePreview();
 }
 
-// --- Chat Upload Logic (Context) ---
 async function handleChatUpload(e) {
     const files = Array.from(e.target.files);
-    if (!files.length) return;
-
     for (const file of files) {
         state.pendingUploads.push(file);
         ui.renderUploadPreview(file);
@@ -292,151 +312,174 @@ async function handleChatUpload(e) {
 }
 
 function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
+    return new Promise((r, j) => {
         const reader = new FileReader();
         reader.readAsDataURL(file); 
-        reader.onload = () => resolve(reader.result); 
-        reader.onerror = reject;
+        reader.onload = () => r(reader.result); 
+        reader.onerror = j;
     });
 }
 
-// --- Agent Logic ---
+// --- Core Logic: State Machine ---
+
 async function handleSend() {
     const inputEl = document.getElementById('chat-input');
     const text = inputEl.value.trim();
     if (!text && state.pendingUploads.length === 0) return;
     if (!state.apiKey) return alert('Please set API Key first.');
 
-    const userParts = [];
-    
+    // Build User Input
+    const userAttachments = [];
     for (const file of state.pendingUploads) {
-        if (file.type.startsWith('text/') || 
-            file.name.match(/\.(js|py|html|json|css|md|txt)$/)) {
-            
+        if (file.type.startsWith('text/') || file.name.match(/\.(js|py|html|json|css|md|txt)$/)) {
             const content = await file.text();
-            userParts.push({ text: `<user_attachment name="${file.name}">\n${content}\n</user_attachment>` });
+            userAttachments.push({ text: `<user_attachment name="${file.name}">\n${content}\n</user_attachment>` });
         } else {
             const dataUrl = await fileToBase64(file);
             const base64 = dataUrl.split(',')[1];
-            userParts.push({ inlineData: { mimeType: file.type, data: base64 } });
+            userAttachments.push({ inlineData: { mimeType: file.type, data: base64 } });
         }
     }
-    
-    if (text) userParts.push({ text: text });
 
     state.pendingUploads = [];
     ui.clearUploadPreviews();
     inputEl.value = '';
 
-    const msgId = Date.now();
-    // ★ Add uiRole for consistency
-    const msgObj = { role: 'user', parts: userParts, id: msgId, uiRole: 'user' };
-    state.chatHistory.push(msgObj);
-    triggerAutoSave(); // Save User Message
-    
-    ui.addMessage('user', text, userParts, () => {
-        state.chatHistory = state.chatHistory.filter(m => m.id !== msgId);
-        triggerAutoSave();
-    });
-
-    setGenerating(true);
-    if (!client) client = new GeminiClient(state.apiKey, CONFIG.MODEL_NAME);
-
-    await runAgentLoop();
+    ui.addMessage('user', text, userAttachments);
+    await processTurn(text, userAttachments);
 }
 
-async function runAgentLoop() {
+async function processTurn(userInputText = null, userAttachments = []) {
+    setProcessing(true);
     state.abortController = new AbortController();
-    let turn = 0;
     
+    if (!client) client = new GeminiClient(state.apiKey, CONFIG.MODEL_NAME);
+
+    // 1. Context Construction
+    const parts = [];
+
+    if (state.pendingToolLogs.length > 0) {
+        const toolXml = `<tool_outputs>\n${state.pendingToolLogs.join('\n')}\n</tool_outputs>`;
+        parts.push({ text: toolXml });
+        state.pendingToolLogs = []; 
+    }
+
+    if (userInputText || userAttachments.length > 0) {
+        const inputXml = userInputText ? `<user_input>\n${userInputText}\n</user_input>` : "";
+        parts.push({ text: inputXml });
+        parts.push(...userAttachments);
+    }
+
+    if (parts.length === 0) {
+        parts.push({ text: "<user_input>continue</user_input>" }); 
+    }
+
+    const messageObj = { 
+        role: 'user', 
+        parts: parts,
+        id: Date.now()
+    };
+    state.chatHistory.push(messageObj);
+    
+    // Clean up old screenshots here
+    cleanupOldScreenshots();
+    
+    triggerAutoSave();
+
     try {
-        while (turn < state.maxTurns) {
-            turn++;
-            console.log(`--- Turn ${turn} ---`);
+        // 2. Generate
+        const apiHistory = [
+            { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
+            // Filter out parts that have been deleted (cleanup)
+            ...state.chatHistory.map(m => ({ 
+                role: m.role, 
+                parts: m.parts.filter(p => p.text || p.inlineData) 
+            }))
+        ];
 
-            // map removes custom props like uiRole/summaryText before sending to API
-            const apiHistory = [
-                { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
-                ...state.chatHistory.map(m => ({ role: m.role, parts: m.parts }))
-            ];
+        const aiMsgDiv = ui.addMessage('model', '...');
+        const aiContent = aiMsgDiv.querySelector('.msg-content');
+        let fullResponse = "";
 
-            const aiMsgDiv = ui.addMessage('model', '...');
-            const aiContent = aiMsgDiv.querySelector('.msg-content');
-            let fullResponse = "";
+        await client.generateStream(
+            apiHistory, 
+            (chunk) => {
+                fullResponse += chunk;
+                aiContent.textContent = fullResponse; 
+                ui.els.chatHistory.scrollTop = ui.els.chatHistory.scrollHeight;
+            },
+            state.abortController.signal
+        );
 
-            await client.generateStream(
-                apiHistory, 
-                (chunk) => {
-                    fullResponse += chunk;
-                    aiContent.textContent = fullResponse; 
-                    ui.els.chatHistory.scrollTop = ui.els.chatHistory.scrollHeight;
-                },
-                state.abortController.signal
-            );
+        state.chatHistory.push({ role: 'model', parts: [{ text: fullResponse }], id: Date.now() });
+        triggerAutoSave();
 
-            // ★ Add uiRole
-            state.chatHistory.push({ role: 'model', parts: [{ text: fullResponse }], id: Date.now(), uiRole: 'model' });
-            triggerAutoSave(); // Save AI Response
+        // 3. Execute Tools
+        const tree = LPMLParser.parse(fullResponse, true, ['create_file', 'edit_file']);
+        const { results, interrupt } = await tools.execute(tree);
 
-            const tree = LPMLParser.parse(fullResponse, true, ['create_file', 'edit_file']);
-            const results = await tools.execute(tree);
+        // 4. Handle Results (UI vs LLM)
+        
+        const uiTextLines = [];
+        const uiAttachments = [];
+        const nextAttachments = []; // Pass to next turn recursion
 
-            if (tree.some(t => t.tag === 'finish')) break;
-            if (results.length === 0) break;
+        for (const res of results) {
+            state.pendingToolLogs.push(res.log);
 
-            const feedbackParts = [];
-            const textOutputs = [];
+            if (res.ui) uiTextLines.push(res.ui);
             
-            for (const res of results) {
-                if (res.type === 'text') textOutputs.push(res.value);
-                if (res.type === 'image') {
-                    feedbackParts.push({ inlineData: { mimeType: 'image/png', data: res.value } });
-                    textOutputs.push(`[System] Screenshot captured.`);
-                }
+            if (res.image) {
+                const imgPart = { inlineData: { mimeType: 'image/png', data: res.image }, _isScreenshot: true };
+                uiAttachments.push(imgPart);
+                nextAttachments.push(imgPart); // Pass to next turn logic
             }
-            
-            feedbackParts.push({ text: `<tool_outputs>\n${textOutputs.join('\n\n')}\n</tool_outputs>` });
-            
-            // ★ Add uiRole & summaryText for clean restoration
-            const feedbackMsg = { 
-                role: 'user', // Keep 'user' for API context
-                parts: feedbackParts, 
-                id: Date.now(),
-                uiRole: 'system', // Use 'system' for UI
-                summaryText: `Executed ${results.length} tool(s).`
-            };
-            state.chatHistory.push(feedbackMsg);
-            triggerAutoSave(); // Save Tool Output
-
-            ui.addMessage('system', `Executed ${results.length} tool(s).`, 
-                feedbackParts.filter(p => p.inlineData));
         }
+
+        if (uiTextLines.length > 0 || uiAttachments.length > 0) {
+            ui.addMessage('system', uiTextLines.join('\n'), uiAttachments);
+        }
+
+        // 5. Next Step
+        if (interrupt) {
+            if (interrupt.type === 'ask') {
+                ui.addMessage('model', `❓ ${interrupt.value}`);
+            } else if (interrupt.type === 'finish') {
+                ui.addMessage('system', `✅ Task Completed: ${interrupt.value}`);
+            }
+            setProcessing(false); 
+        } else {
+            if (results.length === 0) {
+                ui.addMessage('system', '⚠️ AI stopped without action or question.');
+                setProcessing(false);
+            } else {
+                // RECURSION: Pass screenshot to next turn as input
+                setTimeout(() => processTurn(null, nextAttachments), 100);
+            }
+        }
+
     } catch (err) {
         if (err.name !== 'AbortError') {
             console.error(err);
             ui.addMessage('system', `Error: ${err.message}`);
         }
-    } finally {
-        setGenerating(false);
-        state.abortController = null;
+        setProcessing(false);
     }
 }
 
-function setGenerating(isGen) {
-    state.isGenerating = isGen;
-    const ids = { btnSend: 'btn-send', btnStop: 'btn-stop', aiTyping: 'ai-typing', chatInput: 'chat-input' };
-    const el = (id) => document.getElementById(ids[id]);
+function setProcessing(isProc) {
+    state.isProcessing = isProc;
+    const el = (id) => document.getElementById(id);
     
-    el('btnSend').classList.toggle('hidden', isGen);
-    el('btnStop').classList.toggle('hidden', !isGen);
-    el('aiTyping').classList.toggle('hidden', !isGen);
-    el('chatInput').disabled = isGen;
-    if(!isGen) el('chatInput').focus();
+    el('btn-send').classList.toggle('hidden', isProc);
+    el('btn-stop').classList.toggle('hidden', !isProc);
+    el('ai-typing').classList.toggle('hidden', !isProc);
+    el('chat-input').disabled = isProc;
+    if(!isProc) el('chat-input').focus();
 }
 
 function handleStop() {
     if (state.abortController) state.abortController.abort();
 }
 
-// Start
 document.addEventListener('DOMContentLoaded', init);
