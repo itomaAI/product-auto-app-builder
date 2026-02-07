@@ -76,6 +76,11 @@ Contains a message from the user.
 - Only use <finish/> when you have verified everything works and there are no more actions to take.
 </rule>
 
+<rule name="task completion">
+Even if the system provides tool outputs, it does not always mean further actions are required.
+If you determine that the task is complete and no further actions are necessary, you may simply use the <finish/> tag to conclude immediately.
+</rule>
+
 <rule name="autonomous mode">
 You do NOT know the current files in the project initially.
 1. Start by using <list_files/> to see the file structure.
