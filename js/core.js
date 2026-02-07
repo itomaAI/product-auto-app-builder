@@ -9,6 +9,7 @@ const state = {
     abortController: null,
     
     // Execution State
+    // Stores objects: { log: "<xml>...", ui: "📝 Created...", report: "...", image: "base64..." }
     pendingToolLogs: [], 
     
     // Project State
@@ -24,6 +25,25 @@ const compiler = new Compiler(state.vfs);
 const ui = new UIManager(state.vfs, compiler);
 const tools = new ToolExecutor(state.vfs, ui);
 let client = null;
+
+// --- Helper: Message Factory ---
+
+function createChatEntry(role, parts, flags = {}) {
+    return {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        role: role, 
+        parts: parts,
+        flags: {
+            type: 'message',      // 'user_input', 'raw_response', 'tool_log', 'ai_report', 'ai_ask'
+            isVisible: true,      // Show in UI?
+            isContext: true,      // Send to API?
+            uiRole: role,         // 'user', 'model', 'system'
+            cachedUiText: null,   // Pre-formatted text for UI
+            ...flags
+        }
+    };
+}
 
 // --- Initialization ---
 
@@ -70,8 +90,8 @@ async function loadProjectData(project) {
     state.currentProjectId = project.id;
     state.currentProjectName = project.name;
     state.vfs.files = { ...project.files };
-    state.chatHistory = project.chatHistory || [];
     state.pendingToolLogs = []; 
+    state.chatHistory = project.chatHistory || [];
     
     ui.updateProjectName(project.name);
     ui.renderFileList();
@@ -81,112 +101,33 @@ async function loadProjectData(project) {
     chatContainer.innerHTML = '';
     
     state.chatHistory.forEach(msg => {
-        // 1. Model Responses
-        if (msg.role === 'model') {
-            ui.addMessage('model', msg.parts[0].text);
-            return;
-        }
+        if (!msg.flags.isVisible) return;
 
-        // 2. User/System Combined Messages
-        if (msg.role === 'user') {
-            const text = msg.parts.map(p => p.text || '').join('');
+        const text = msg.flags.cachedUiText !== null 
+            ? msg.flags.cachedUiText 
+            : msg.parts.map(p => p.text || '').join('');
             
-            // A. Reconstruct Tool Outputs (System Logs)
-            const toolMatch = text.match(/<tool_outputs>([\s\S]*?)<\/tool_outputs>/);
-            if (toolMatch) {
-                const rawLogs = toolMatch[1].trim().split('\n');
-                const uiLines = [];
-                
-                rawLogs.forEach(log => {
-                    if (log.includes('[create_file]')) uiLines.push(log.replace('[create_file]', '📝 Created'));
-                    else if (log.includes('[edit_file]')) uiLines.push(log.replace('[edit_file]', '✏️ Edited'));
-                    else if (log.includes('[read_file]')) {
-                        const firstLine = log.split('\n')[0]; 
-                        uiLines.push(firstLine.replace('[read_file]', '📖 Read'));
-                    }
-                    else if (log.includes('[delete_file]')) uiLines.push(log.replace('[delete_file]', '🗑️ Deleted'));
-                    else if (log.includes('[move_file]')) uiLines.push(log.replace('[move_file]', '🚚 Moved'));
-                    else if (log.includes('[preview]')) uiLines.push('🔄 Preview Refreshed');
-                    else if (log.includes('[take_screenshot]')) uiLines.push('📸 Screenshot captured');
-                    else if (log.includes('[System Error]')) uiLines.push(log.replace('[System Error]', '❌ Error'));
-                });
-                
-                // Get Attachments (Screenshots or User Uploads)
-                const atts = msg.parts.filter(p => !p.text || p.text.startsWith('<user_attachment'));
-                
-                if (uiLines.length > 0 || atts.length > 0) {
-                    ui.addMessage('system', uiLines.join('\n'), atts);
-                }
-            }
-
-            // B. Reconstruct User Input
-            const inputMatch = text.match(/<user_input>([\s\S]*?)<\/user_input>/);
-            // User uploads are usually in the same message OR separate.
-            // In our new loop, user uploads are part of the SAME message as user_input.
-            // But if we already displayed atts with tool outputs (which shouldn't happen for user uploads), handle carefully.
-            // Logic: Tool-generated screenshots are attached to the message containing <tool_outputs>.
-            // User-uploaded files are attached to the message containing <user_input>.
-            // In processTurn, we might combine them if user replies immediately.
-            // For simplicity in restore: we attach ALL attachments in this message to the UI.
-            
-            // Wait, if we attach all atts to 'system' above, we duplicate them?
-            // Let's refine: Screenshots have mimeType 'image/png'. User files might be different.
-            // But simpler: just check if we already displayed them.
-            // Actually, in processTurn, we push a SINGLE message object containing everything.
-            // So we should split UI display?
-            // Let's keep it simple: System outputs (logs + screenshots) are one UI bubble.
-            // User input (text + user files) are another UI bubble.
-            // But they are in ONE history message.
-            
-            // Refined Restore Logic:
-            // 1. Logs & Screenshots
-            const sysAtts = msg.parts.filter(p => p.inlineData && p._isScreenshot); // We need to flag screenshots? 
-            // Or just heuristic: if tool_outputs exists, assume images are screenshots? No, user might upload image + tool log (recursion).
-            // Let's rely on the order? 
-            // Current processTurn implementation: [ToolXML, InputXML, UserAtts..., ScreenshotAtts(from prev recursion)]
-            // This is getting complex.
-            // Simplified approach: Just show everything. The user will see context.
-            
-            // For now, let's just display user input text. Attachments are handled above if they exist.
-            if (inputMatch) {
-                const userText = inputMatch[1].trim();
-                if (userText && userText !== 'continue') {
-                    // Filter atts that are NOT screenshots (heuristic)? 
-                    // Let's just show them.
-                    // If we showed atts in system bubble, don't show here?
-                    // Let's simpler: Don't show atts in System bubble in restore loop. Only in User bubble?
-                    // No, screenshots are System outputs.
-                    
-                    // Let's assume for now: Restore logic is "Best Effort".
-                    ui.addMessage('user', userText);
-                }
-            }
-        }
+        const attachments = msg.parts.filter(p => p.inlineData || (p.text && p.text.startsWith('<user_attachment')));
+        
+        ui.addMessage(msg.flags.uiRole, text, attachments);
     });
     
     ui.updatePreview();
 }
 
 function cleanupOldScreenshots() {
-    // Keep only the latest screenshot to save memory/tokens
-    // Iterate backwards, find first message with screenshot, keep it. Remove 'inlineData' from older ones.
     let foundLatest = false;
     for (let i = state.chatHistory.length - 1; i >= 0; i--) {
         const msg = state.chatHistory[i];
-        if (msg.role === 'user' && msg.parts) {
+        if (msg.flags.isContext && msg.role === 'user' && msg.parts) {
             msg.parts.forEach(p => {
                 if (p.inlineData && p.inlineData.mimeType === 'image/png') {
-                    // Heuristic: If it looks like a screenshot. 
-                    // To be safe, we only clean if we are sure.
-                    // But for now, let's assume all PNGs in history are screenshots (since user uploads usually happen once at start).
-                    // Or we can add a property `_isScreenshot: true` when creating part.
                     if (p._isScreenshot) {
                         if (foundLatest) {
-                            // Delete data, keep placeholder
                             delete p.inlineData;
                             p.text = "[Old Screenshot Removed]";
                         } else {
-                            foundLatest = true; // Keep this one
+                            foundLatest = true;
                         }
                     }
                 }
@@ -345,56 +286,95 @@ async function handleSend() {
     ui.clearUploadPreviews();
     inputEl.value = '';
 
+    // Add to history (Visible & Context)
+    const entry = createChatEntry('user', [{ text: text }, ...userAttachments], {
+        type: 'user_input',
+        isVisible: true,
+        isContext: true,
+        uiRole: 'user',
+        cachedUiText: text // User text is safe to render as is
+    });
+    
+    state.chatHistory.push(entry);
     ui.addMessage('user', text, userAttachments);
-    await processTurn(text, userAttachments);
+    
+    // Call processTurn WITHOUT arguments. 
+    await processTurn();
 }
 
-async function processTurn(userInputText = null, userAttachments = []) {
+async function processTurn(incomingAttachments = []) {
     setProcessing(true);
     state.abortController = new AbortController();
     
     if (!client) client = new GeminiClient(state.apiKey, CONFIG.MODEL_NAME);
 
     // 1. Context Construction
-    const parts = [];
+    // Bundle "Pending Logs" and "Incoming Attachments" (Recursive Screenshots) into a new History Entry.
+    const contextParts = [];
 
+    // A. Tool Logs (from previous turn)
     if (state.pendingToolLogs.length > 0) {
-        const toolXml = `<tool_outputs>\n${state.pendingToolLogs.join('\n')}\n</tool_outputs>`;
-        parts.push({ text: toolXml });
+        const toolXml = `<tool_outputs>\n${state.pendingToolLogs.map(i => i.log).join('\n')}\n</tool_outputs>`;
+        contextParts.push({ text: toolXml });
+    }
+
+    // B. Incoming Attachments (Screenshots from recursive call)
+    if (incomingAttachments.length > 0) {
+        contextParts.push(...incomingAttachments);
+    }
+
+    // If there is new context to add...
+    if (contextParts.length > 0) {
+        // UI Text for logs (if any)
+        const uiText = state.pendingToolLogs.map(i => i.ui).filter(Boolean).join('\n');
+        
+        const logEntry = createChatEntry('user', contextParts, {
+            type: 'tool_log',
+            isVisible: true,  
+            isContext: true,  
+            uiRole: 'system',
+            cachedUiText: uiText 
+        });
+        state.chatHistory.push(logEntry);
+        
+        // Render in UI (logs + images)
+        if (uiText.trim() || incomingAttachments.length > 0) {
+            ui.addMessage('system', uiText, incomingAttachments);
+        }
+        
         state.pendingToolLogs = []; 
+    } 
+    // Trigger if completely empty start (auto-run case)
+    else if (state.chatHistory.length === 0) {
+         const triggerEntry = createChatEntry('user', [{ text: "<user_input>continue</user_input>" }], {
+             type: 'auto_trigger',
+             isVisible: false,
+             isContext: true
+         });
+         state.chatHistory.push(triggerEntry);
     }
 
-    if (userInputText || userAttachments.length > 0) {
-        const inputXml = userInputText ? `<user_input>\n${userInputText}\n</user_input>` : "";
-        parts.push({ text: inputXml });
-        parts.push(...userAttachments);
-    }
-
-    if (parts.length === 0) {
-        parts.push({ text: "<user_input>continue</user_input>" }); 
-    }
-
-    const messageObj = { 
-        role: 'user', 
-        parts: parts,
-        id: Date.now()
-    };
-    state.chatHistory.push(messageObj);
-    
-    // Clean up old screenshots here
     cleanupOldScreenshots();
-    
     triggerAutoSave();
 
     try {
-        // 2. Generate
+        // 2. API Request
+        // IMPORTANT: Sanitize parts to remove internal flags like _isScreenshot
         const apiHistory = [
             { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
-            // Filter out parts that have been deleted (cleanup)
-            ...state.chatHistory.map(m => ({ 
-                role: m.role, 
-                parts: m.parts.filter(p => p.text || p.inlineData) 
-            }))
+            ...state.chatHistory
+                .filter(m => m.flags.isContext)
+                .map(m => ({ 
+                    role: m.role, 
+                    parts: m.parts
+                        .filter(p => p.text || p.inlineData)
+                        .map(p => {
+                            if (p.text) return { text: p.text };
+                            if (p.inlineData) return { inlineData: p.inlineData };
+                            return null;
+                        })
+                        .filter(Boolean)
+                }))
         ];
 
         const aiMsgDiv = ui.addMessage('model', '...');
@@ -411,57 +391,96 @@ async function processTurn(userInputText = null, userAttachments = []) {
             state.abortController.signal
         );
 
-        state.chatHistory.push({ role: 'model', parts: [{ text: fullResponse }], id: Date.now() });
+        aiMsgDiv.remove(); 
+
+        // 3. Save Raw Response
+        const rawEntry = createChatEntry('model', [{ text: fullResponse }], {
+            type: 'raw_response',
+            isVisible: false, 
+            isContext: true,
+            uiRole: 'model'
+        });
+        state.chatHistory.push(rawEntry);
         triggerAutoSave();
 
-        // 3. Execute Tools
+        // 4. Execute Tools
         const tree = LPMLParser.parse(fullResponse, true, ['create_file', 'edit_file']);
         const { results, interrupt } = await tools.execute(tree);
 
-        // 4. Handle Results (UI vs LLM)
-        
-        const uiTextLines = [];
-        const uiAttachments = [];
-        const nextAttachments = []; // Pass to next turn recursion
+        // 5. Process Results
+        const reports = [];
+        const nextAttachments = []; 
 
         for (const res of results) {
-            state.pendingToolLogs.push(res.log);
-
-            if (res.ui) uiTextLines.push(res.ui);
-            
+            state.pendingToolLogs.push(res); // Store full result object for context log
+            if (res.report) reports.push(res.report);
             if (res.image) {
                 const imgPart = { inlineData: { mimeType: 'image/png', data: res.image }, _isScreenshot: true };
-                uiAttachments.push(imgPart);
-                nextAttachments.push(imgPart); // Pass to next turn logic
+                nextAttachments.push(imgPart); 
             }
         }
 
-        if (uiTextLines.length > 0 || uiAttachments.length > 0) {
-            ui.addMessage('system', uiTextLines.join('\n'), uiAttachments);
+        // 6. UI Messages
+        for (const report of reports) {
+            const msg = `📢 ${report}`;
+            const reportEntry = createChatEntry('model', [{ text: msg }], {
+                type: 'ai_report',
+                isVisible: true,
+                isContext: false, 
+                uiRole: 'model',
+                cachedUiText: msg
+            });
+            state.chatHistory.push(reportEntry);
+            ui.addMessage('model', msg);
         }
 
-        // 5. Next Step
         if (interrupt) {
             if (interrupt.type === 'ask') {
-                ui.addMessage('model', `❓ ${interrupt.value}`);
+                const askMsg = `❓ ${interrupt.value}`;
+                const askEntry = createChatEntry('model', [{ text: askMsg }], {
+                    type: 'ai_ask',
+                    isVisible: true,
+                    isContext: false,
+                    uiRole: 'model',
+                    cachedUiText: askMsg
+                });
+                state.chatHistory.push(askEntry);
+                ui.addMessage('model', askMsg);
+
             } else if (interrupt.type === 'finish') {
-                ui.addMessage('system', `✅ Task Completed: ${interrupt.value}`);
+                const finishMsg = `✅ Task Completed: ${interrupt.value}`;
+                const finishEntry = createChatEntry('model', [{ text: finishMsg }], {
+                    type: 'ai_finish',
+                    isVisible: true,
+                    isContext: false,
+                    uiRole: 'system',
+                    cachedUiText: finishMsg
+                });
+                state.chatHistory.push(finishEntry);
+                ui.addMessage('system', finishMsg);
             }
             setProcessing(false); 
         } else {
             if (results.length === 0) {
-                ui.addMessage('system', '⚠️ AI stopped without action or question.');
-                setProcessing(false);
+                // Assuming thinking process
+                setTimeout(() => processTurn(nextAttachments), 100);
             } else {
-                // RECURSION: Pass screenshot to next turn as input
-                setTimeout(() => processTurn(null, nextAttachments), 100);
+                setTimeout(() => processTurn(nextAttachments), 100);
             }
         }
+        
+        triggerAutoSave();
 
     } catch (err) {
         if (err.name !== 'AbortError') {
             console.error(err);
             ui.addMessage('system', `Error: ${err.message}`);
+            state.chatHistory.push(createChatEntry('model', [{ text: `[System Error] ${err.message}` }], {
+                type: 'error',
+                isVisible: true,
+                isContext: true,
+                cachedUiText: `❌ System Error: ${err.message}`
+            }));
         }
         setProcessing(false);
     }

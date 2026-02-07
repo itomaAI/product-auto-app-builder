@@ -156,7 +156,6 @@ class ToolExecutor {
                     await new Promise(r => setTimeout(r, 500));
                     const base64 = await this._captureViaMessaging();
                     return {
-                        // LogにはBase64を含めない (Core側で処理する)
                         log: `[take_screenshot] Captured.`, 
                         ui: `📸 Screenshot captured`,
                         image: base64
@@ -168,13 +167,19 @@ class ToolExecutor {
                     };
                 }
 
+            case 'report':
+                return {
+                    log: `[report] ${textContent}`,
+                    report: textContent // UI表示用に分離
+                    // uiプロパティは返さない（システムログには混ぜない）
+                };
+
             case 'thinking':
             case 'plan':
-            case 'report':
                 return null; 
 
             default:
-                return null;  // 無限ループ
+                return null;  // 勝手なタグを作って無限ループに入ることがあるので
         }
     }
 
