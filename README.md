@@ -14,6 +14,9 @@ v2 では **IndexedDB による自動保存** と **マルチプロジェクト�
 *   **仮想ファイルシステム (VFS)**: メモリ上にファイル構造を構築し、Blob URL 技術を用いてリアルタイムにプレビューを実行します。
 *   **LPML (Local Prompt Markup Language)**: AIとの通信に最適化された独自のマークアップ言語を採用し、複雑なファイル操作を正確に指示します。
 
+## 🎬 デモ動画
+[Screencast from 2026-02-07 01-13-01.webm](https://github.com/user-attachments/assets/507ac655-b0a5-413e-a830-c412fea35269)
+
 ## 🛠️ 前提条件
 
 *   **Google Gemini API Key**: [Google AI Studio](https://aistudio.google.com/) で取得してください。
