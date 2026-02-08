@@ -324,6 +324,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         alert('API Key Saved');
     });
 
+    // UI: Preview Refresh (ここを追加)
+    const btnRefresh = document.getElementById(DOM.btnRefresh);
+    if(btnRefresh) btnRefresh.addEventListener('click', () => {
+        // VFSの最新状態を使って再コンパイル・再描画
+        ui.refreshPreview(vfs);
+    });
+
     // Editor & File Open
     document.getElementById(DOM.fileList).addEventListener('file-open', (e) => {
         const path = e.detail;
