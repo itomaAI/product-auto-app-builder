@@ -63,13 +63,11 @@
 		registry.register('edit_file', async (params, state) => {
 			const content = params.content || "";
 
-			// マーカー定義 (Regex Replacement Mode)
+			// マーカー定義
 			const MARKER_SEARCH = "<<<<SEARCH";
 			const MARKER_DIVIDER = "====";
 			const MARKER_END = ">>>>";
 
-			// 1. ガード処理: 1つのタグに複数の置換ブロックが含まれていたらエラーにする
-			// (splitして3つ以上になる = マーカーが2回以上出現している)
 			if (content.split(MARKER_SEARCH).length > 2) {
 				throw new Error(
 					"Multiple replacement blocks detected in one <edit_file> tag. " +
@@ -77,7 +75,7 @@
 				);
 			}
 
-			// 2. 正規表現置換モード (マーカーが存在する場合)
+			// Regex Replacement Mode
 			if (content.includes(MARKER_SEARCH) && content.includes(MARKER_DIVIDER) && content.includes(MARKER_END)) {
 
 				const searchStart = content.indexOf(MARKER_SEARCH) + MARKER_SEARCH.length;
@@ -85,24 +83,38 @@
 				const divEnd = divStart + MARKER_DIVIDER.length;
 				const blockEnd = content.lastIndexOf(MARKER_END);
 
-				// 構造チェック
 				if (divStart < searchStart || blockEnd < divEnd) {
 					throw new Error("Invalid edit_file format: Markers are malformed or out of order.");
 				}
 
-				// 文字列抽出
 				let patternStr = content.substring(searchStart, divStart);
 				let replaceStr = content.substring(divEnd, blockEnd);
 
-				// 前後の改行トリム（マーカー行の改行を除去）
-				// 先頭/末尾の改行を1つだけ除去する
+				// 改行トリム
 				if (patternStr.startsWith('\n')) patternStr = patternStr.substring(1);
 				if (patternStr.endsWith('\n')) patternStr = patternStr.substring(0, patternStr.length - 1);
 
 				if (replaceStr.startsWith('\n')) replaceStr = replaceStr.substring(1);
 				if (replaceStr.endsWith('\n')) replaceStr = replaceStr.substring(0, replaceStr.length - 1);
 
-				// VFS呼び出し (正規表現置換)
+				// 【ここが修正ポイント】
+				// VFSに渡す前に、patternStr が「リテラル文字列」としてファイル内に存在するか確認する
+				try {
+					if (vfs.exists(params.path)) {
+						const currentFileContent = vfs.readFile(params.path);
+
+						// もし patternStr がそのままの文字列としてファイル内に見つかった場合、
+						// LLMは正規表現ではなく「コードそのもの」を送ってきている。
+						// そのため、正規表現の特殊文字をエスケープしてあげる。
+						if (currentFileContent.includes(patternStr)) {
+							// Regex特殊文字をエスケープ (\, ., *, +, ?, ^, $, {, }, (, ), |, [, ])
+							patternStr = patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+						}
+					}
+				} catch (e) {
+					// 読み込みエラー等は無視（VFS側で再度エラー処理されるので）
+				}
+
 				const msg = vfs.replaceContent(params.path, patternStr, replaceStr);
 				return {
 					log: `[edit_file] ${msg}`,
@@ -110,18 +122,17 @@
 				};
 			}
 
-			// 3. 行指定モード (Fallback / Legacy)
+			// Line-based Editing Mode (Fallback)
 			if (!params.mode) {
 				throw new Error("Attribute 'mode' is required when not using SEARCH/REPLACE blocks.");
 			}
 
-			// VFS呼び出し (行編集)
 			const msg = vfs.editLines(
 				params.path,
 				params.start,
 				params.end,
 				params.mode,
-				content // 生コンテンツを渡す (vfs側で改行サニタイズされる)
+				content
 			);
 			return {
 				log: `[edit_file] ${msg}`,
