@@ -5,6 +5,7 @@
     global.App.Adapters = global.App.Adapters || {};
 
     const Role = global.ALLA.Role;
+    const TurnType = global.ALLA.TurnType;
 
     class MetaForgeProjector extends global.ALLA.ContextProjector {
         /**
@@ -37,7 +38,8 @@
                 // Role Mapping
                 let apiRole = 'user';
                 if (turn.role === Role.MODEL) apiRole = 'model';
-                if (turn.role === Role.SYSTEM) apiRole = 'user'; // System output is User input for LLM
+                // System output (Tool results) is User input for LLM
+                if (turn.role === Role.SYSTEM) apiRole = 'user'; 
 
                 apiMessages.push({
                     role: apiRole,
@@ -51,25 +53,29 @@
         _convertTurnToParts(turn) {
             // A. テキストの場合
             if (typeof turn.content === 'string') {
-                return [{ text: turn.content }];
+                let text = turn.content;
+                // 【修正】ユーザー入力ならタグで囲む
+                if (turn.role === Role.USER) {
+                    text = `<user_input>\n${text}\n</user_input>`;
+                }
+                return [{ text: text }];
             }
 
             // B. 配列の場合 (Mixed content)
             if (Array.isArray(turn.content)) {
-                // Tool Output (Results) の場合
-                if (turn.meta && turn.meta.type === global.ALLA.TurnType.TOOL_EXECUTION) {
+                // 1. Tool Output (Results) の場合
+                if (turn.meta && turn.meta.type === TurnType.TOOL_EXECUTION) {
                     // <tool_outputs> タグでラップする
                     const logText = turn.content.map(c => {
-                        // 画像が含まれる場合は除外して、テキストログだけにする（画像は別途処理するか、ここには含めない）
-                        // ※MetaForge仕様: ツール結果に画像が含まれる場合、それはプレビューのスクショである
+                        // 画像が含まれる場合は除外して、テキストログだけにする
                         if (c.output && c.output.image) return ""; 
-                        // ToolRegistryが返す { log: "..." } を使う想定
+                        // ToolRegistryが返す { log: "..." } を使う
                         if (c.output && c.output.log) return c.output.log;
                         return "";
-                    }).join('\n');
+                    }).join('\n').trim();
                     
                     const parts = [];
-                    if (logText.trim()) {
+                    if (logText) {
                         parts.push({ text: `<tool_outputs>\n${logText}\n</tool_outputs>` });
                     }
 
@@ -78,9 +84,7 @@
                         if (c.output && c.output.image) {
                             parts.push({
                                 inlineData: {
-                                    // 【修正後】ツールから渡された mimeType を優先し、なければ png にする
                                     mimeType: c.output.mimeType || 'image/png',
-                                    
                                     data: c.output.image // Base64
                                 }
                             });
@@ -89,7 +93,35 @@
                     return parts;
                 }
 
-                // 通常のUser Input (Attachments) の場合
+                // 2. 通常のUser Input (Attachments / Images) の場合
+                if (turn.role === Role.USER) {
+                    const parts = [];
+                    let textBuffer = "";
+
+                    // テキストバッファをタグで囲んで出力する関数
+                    const flushText = () => {
+                        if (textBuffer.trim()) {
+                            parts.push({ text: `<user_input>\n${textBuffer.trim()}\n</user_input>` });
+                        }
+                        textBuffer = "";
+                    };
+
+                    for (const item of turn.content) {
+                        if (item.text) {
+                            textBuffer += item.text + "\n";
+                        } else if (item.inlineData) {
+                            // 画像が来たら、一旦溜まったテキストを吐き出す（Geminiはテキストと画像を混ぜて送信するため）
+                            flushText();
+                            parts.push({ inlineData: item.inlineData });
+                        }
+                    }
+                    // 残りのテキストを吐き出す
+                    flushText();
+
+                    return parts;
+                }
+
+                // その他のケース（Fallback）
                 return turn.content.map(c => {
                     if (c.text) return { text: c.text };
                     if (c.inlineData) return { inlineData: c.inlineData };
@@ -113,7 +145,7 @@
                 if (!Array.isArray(turn.content)) continue;
 
                 // ツール実行結果内の画像を探索
-                if (turn.meta && turn.meta.type === global.ALLA.TurnType.TOOL_EXECUTION) {
+                if (turn.meta && turn.meta.type === TurnType.TOOL_EXECUTION) {
                     turn.content.forEach(item => {
                         if (item.output && item.output.image) {
                             if (foundLatestImage) {
@@ -127,10 +159,6 @@
                         }
                     });
                 }
-                
-                // ユーザーアップロード画像も同様に処理すべきだが、
-                // 元のMetaForge仕様では「スクリーンショット(_isScreenshot)」のみが対象だったため
-                // ここではツール出力画像(Screenshot)に限定する。
             }
         }
     }
