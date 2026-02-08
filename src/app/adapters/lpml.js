@@ -144,13 +144,12 @@
             edits.sort((a, b) => {
                 const pathA = a.params.path || "";
                 const pathB = b.params.path || "";
+                
                 if (pathA !== pathB) return pathA.localeCompare(pathB);
                 
                 const startA = parseInt(a.params.start || 0);
                 const startB = parseInt(b.params.start || 0);
-
-                if (startB !== startA) return startB - startA;
-                return 0; 
+                return startB - startA;
             });
 
             // 3. 結合 (Others -> Edits -> Interrupts)

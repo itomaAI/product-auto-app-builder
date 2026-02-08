@@ -68,7 +68,11 @@
         // --- edit_file ---
         registry.register('edit_file', async (params, state) => {
             const msg = vfs.editLines(
-                params.path, params.start, params.end, params.mode, params.content
+                params.path, 
+                params.start, 
+                params.end, 
+                params.mode, 
+                params.content
             );
             return {
                 log: `[edit_file] ${msg}`,
