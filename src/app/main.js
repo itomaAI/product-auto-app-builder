@@ -31,6 +31,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     let apiKey = localStorage.getItem('metaforge_api_key') || '';
     if (apiKey && document.getElementById(DOM.apiKey)) document.getElementById(DOM.apiKey).value = apiKey;
     
+    // Set Model Status from Config
+    if (DOM.modelStatus && document.getElementById(DOM.modelStatus)) {
+        document.getElementById(DOM.modelStatus).innerText = Config.MODEL_NAME;
+    }
+    
     const createLLM = () => new GeminiAdapter(apiKey, Config.MODEL_NAME);
     let llm = createLLM();
 
