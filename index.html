@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MetaForge v2 - AI App Builder</title>
+    <title>MetaForge v2 - ALLA Architecture</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,7 +17,7 @@
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         body { font-family: 'Inter', system-ui, sans-serif; }
         
-        /* Resizer Styles */
+        /* Resizer Styles (Restored) */
         .resizer {
             width: 4px;
             background: #374151;
@@ -51,7 +51,7 @@
     <header class="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-10">
         <div class="flex items-center gap-2">
             <div class="w-6 h-6 bg-blue-600 rounded flex items-center justify-center font-bold text-white text-xs">MF</div>
-            <h1 class="font-bold text-gray-100 tracking-wide">MetaForge <span class="text-xs font-normal text-gray-400">v2</span></h1>
+            <h1 class="font-bold text-gray-100 tracking-wide">MetaForge <span class="text-xs font-normal text-gray-400">ALLA</span></h1>
         </div>
         
         <div class="flex items-center gap-3">
@@ -67,13 +67,13 @@
         <!-- 1. Left Sidebar (File Explorer) -->
         <div class="w-64 bg-gray-800 flex flex-col shrink-0 border-r border-gray-700">
             
-            <!-- Project Header (New) -->
+            <!-- Project Header (Restored) -->
             <div class="h-10 bg-gray-900 border-b border-gray-700 flex items-center justify-between px-3 shrink-0">
                 <div class="flex-1 flex items-center min-w-0 mr-2 cursor-pointer hover:bg-gray-800 rounded px-1 group relative" id="project-select-trigger">
                     <span id="current-project-name" class="text-xs font-bold text-gray-200 truncate select-none">Project Name</span>
                     <svg class="w-3 h-3 ml-1 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     
-                    <!-- Inline Rename Input (Hidden by default) -->
+                    <!-- Inline Rename Input -->
                     <input type="text" id="project-rename-input" class="absolute inset-0 bg-gray-700 text-white text-xs px-1 rounded outline-none border border-blue-500 hidden">
                 </div>
                 <button id="btn-new-project" title="New Project" class="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition">
@@ -136,11 +136,11 @@
                     <span id="editor-filename" class="text-xs font-mono text-gray-300">filename.js</span>
                     <button id="btn-close-editor" class="text-gray-400 hover:text-white">✕</button>
                 </div>
-                <textarea id="code-editor" class="flex-1 bg-gray-900 text-gray-300 font-mono text-sm p-4 outline-none resize-none" readonly></textarea>
+                <textarea id="code-editor" class="flex-1 bg-gray-900 text-gray-300 font-mono text-sm p-4 outline-none resize-none"></textarea>
             </div>
         </div>
 
-        <!-- Resizer Handle -->
+        <!-- Resizer Handle (Restored) -->
         <div id="chat-resizer" class="resizer"></div>
 
         <!-- 3. Right Sidebar (Chat) -->
@@ -151,7 +151,7 @@
                     <button id="btn-clear-chat" title="Clear History" class="text-gray-500 hover:text-red-400">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                     </button>
-                    <span id="model-status" class="text-[10px] text-gray-500">Gemini-3 Pro</span>
+                    <span id="model-status" class="text-[10px] text-gray-500">Gemini-2.0 Flash</span>
                 </div>
             </div>
 
@@ -194,7 +194,7 @@
         </div>
     </div>
 
-    <!-- Project History Modal -->
+    <!-- Project History Modal (Restored) -->
     <div id="project-modal" class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden flex items-center justify-center modal">
         <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700 flex flex-col max-h-[80vh] modal-content">
             <div class="p-4 border-b border-gray-700 flex justify-between items-center">
@@ -212,16 +212,39 @@
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="js/config.js"></script>
-    <script src="js/storage.js"></script> <!-- NEW -->
-    <script src="js/prompts.js"></script>
-    <script src="js/vfs.js"></script>
-    <script src="js/lpml.js"></script>
-    <script src="js/compiler.js"></script>
-    <script src="js/gemini.js"></script>
-    <script src="js/tools.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/core.js"></script>
+    <!-- Scripts: ALLA Architecture Loading Order -->
+    
+    <!-- 1. Core Engine -->
+    <script src="src/lib/types.js"></script>
+    <script src="src/lib/state.js"></script>
+    <script src="src/lib/interfaces.js"></script>
+    <script src="src/lib/engine.js"></script>
+    
+    <!-- 2. Configuration -->
+    <script src="src/app/config.js"></script>
+
+    <!-- 3. Adapters -->
+    <script src="src/app/adapters/gemini.js"></script>
+    <script src="src/app/adapters/lpml.js"></script>
+    <script src="src/app/adapters/projector.js"></script>
+    <script src="src/app/adapters/storage.js"></script>
+
+    <!-- 4. World & Infrastructure -->
+    <script src="src/app/world/vfs.js"></script>
+    <script src="src/app/world/compiler.js"></script>
+
+    <!-- 5. UI -->
+    <script src="src/app/ui/dom.js"></script>
+    <script src="src/app/ui/controller.js"></script>
+
+    <!-- 6. Tools -->
+    <script src="src/app/tools/registry.js"></script>
+    <script src="src/app/tools/fs_tools.js"></script>
+    <script src="src/app/tools/nav_tools.js"></script>
+    <script src="src/app/tools/ui_tools.js"></script>
+
+    <!-- 7. Main -->
+    <script src="src/app/main.js"></script>
+
 </body>
 </html>

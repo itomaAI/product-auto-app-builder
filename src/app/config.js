@@ -1,8 +1,66 @@
-// js/prompts.js
+// src/app/config.js
 
-// js/prompts.js
+(function(global) {
+    global.App = global.App || {};
 
-const SYSTEM_PROMPT_TEXT = `
+    // --- Reference Content (Placeholders as requested) ---
+    const REF_GEMINI_JS = `// Reference implementation of Gemini Client (omitted)`;
+    const REF_LPML_JS = `// Reference implementation of LPML Parser (omitted)`;
+    const REF_README = `
+# MetaForge Sample Code
+This directory contains reference implementations.
+- gemini.js: API Client
+- lpml.js: Response Parser
+Read these files if you need to implement similar logic.
+`.trim();
+
+    // --- Configuration ---
+    const CONFIG = {
+        // Model Settings
+        MODEL_NAME: "gemini-3-pro-preview", 
+        
+        // AI Response Language
+        LANGUAGE: "Japanese",
+
+        // API Generation Config
+        GENERATION_CONFIG: {
+            temperature: 1.0,
+            maxOutputTokens: 65536,
+        },
+
+        // Initial VFS State
+        DEFAULT_FILES: {
+            "index.html": `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>New App</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; margin: 0; }
+        .container { text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to MetaForge</h1>
+        <p>Ask the AI to build something.</p>
+    </div>
+</body>
+</html>`,
+            // Knowledge Base
+            ".sample/gemini.js": REF_GEMINI_JS,
+            ".sample/lpml.js": REF_LPML_JS,
+            ".sample/README.txt": REF_README
+        }
+    };
+
+    // --- System Prompt Construction ---
+    
+    // Dynamic language insertion
+    const LANG = CONFIG.LANGUAGE || "English";
+
+    const SYSTEM_PROMPT_TEXT = `
 <rule name="root rule">
 All messages must be formatted in LPML (Local Prompt Markup Language). LPML element ::= <tag attribute="value">content</tag> or <tag/>.
 You are "MetaForge", an AI App Builder.
@@ -40,29 +98,27 @@ Notes:
 </define_tag>
 
 <define_tag name="report">
-This tag represents a status report.
-In this tag, the assistant must use ${CONFIG.LANGUAGE || "English"}.
+This tag represents a status report or message to the user.
+In this tag, the assistant must use ${LANG}.
 </define_tag>
 
 <define_tag name="ask">
 Pauses execution to ask the user a question.
 Use this when you need clarification or want to confirm the design.
-In this tag, the assistant must use ${CONFIG.LANGUAGE || "English"}.
+In this tag, the assistant must use ${LANG}.
 Content:
     - The question to the user.
 </define_tag>
 
 <define_tag name="finish">
 Marks task as complete.
-**Do NOT** use this if you also used other tools in the same message.
-</define_tag>
-
-<define_tag name="system_report">
-Provides the assistant with the results of previously executed tools.
+**Do NOT** use this if you also used other tools (like file operations) in the same message.
+Wait for the tool outputs to verify success before finishing.
 </define_tag>
 
 <define_tag name="tool_outputs">
 Contains the outputs from previously executed tools.
+The system automatically generates this tag. You should read it to verify the results of your actions.
 </define_tag>
 
 <define_tag name="user_input">
@@ -77,8 +133,7 @@ Contains a message from the user.
 </rule>
 
 <rule name="task completion">
-Even if the system provides tool outputs, it does not always mean further actions are required.
-If you determine that the task is complete and no further actions are necessary, you may simply use the <finish/> tag to conclude immediately.
+If you determine that the task is complete and no further actions are necessary, you may use the <finish/> tag to conclude.
 </rule>
 
 <rule name="autonomous mode">
@@ -127,7 +182,7 @@ Content:
     - Empty for "delete".
 Notes:
     - Do not guess line numbers. Use <read_file> if unsure.
-    - Multiple edits to the same file are allowed in one turn; the system handles them correctly.
+    - Multiple edits to the same file are allowed in one turn.
 </define_tag>
 
 <define_tag name="read_file">
@@ -137,6 +192,8 @@ Attributes:
     - start (optional): Start line number.
     - end (optional): End line number.
     - line_numbers (optional): "true" (default) or "false".
+Notes:
+    - If the target is an image file, the system will return the image data for you to see.
 </define_tag>
 
 <define_tag name="delete_file">
@@ -165,8 +222,12 @@ Use this after making changes to code to verify the result visually.
 Captures an image of the current preview.
 Attributes: None.
 Constraint:
-    - Should be used AFTER <preview>.
+    - Should be used AFTER <preview> in the same or subsequent turn.
 </define_tag>
 `.trim();
 
-const SYSTEM_PROMPT = SYSTEM_PROMPT_TEXT;
+    CONFIG.SYSTEM_PROMPT = SYSTEM_PROMPT_TEXT;
+
+    global.App.Config = CONFIG;
+
+})(window);
