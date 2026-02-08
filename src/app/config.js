@@ -335,9 +335,10 @@ Content:
 </define_tag>
 
 <define_tag name="finish">
-Marks task as complete.
-**Do NOT** use this if you also used other tools (like file operations) in the same message.
-Wait for the tool outputs to verify success before finishing.
+Stops the autonomous execution loop between the LLM and the System.
+Use this tag when you decide there are no more tools to execute in the current turn.
+Constraint:
+    - You **MUST NOT** use this tag if you are using ANY other tools (create_file, preview, etc.) in the same message.
 </define_tag>
 
 <define_tag name="tool_outputs">
@@ -350,10 +351,9 @@ Contains a message from the user.
 </define_tag>
 
 <rule name="execution flow">
-**STRICT RULE**:
-- If you use ANY tool (create_file, edit_file, etc.) in a turn, you MUST NOT use <finish/> in the same turn.
-- You must wait for the "Tool Output" in the next user message to verify the result.
-- Only use <finish/> when you have verified everything works and there are no more actions to take.
+**STRICT RULES for Loop Control**:
+1. **Tool Use = Continue**: If you use any tool (file operations, preview, etc.), do **NOT** use <finish/>. The system needs to run the tool and report back to you in the next turn.
+2. **No Tool = Finish**: If you have no further tools to run (e.g., you are just answering a question, or you have verified the previous tool outputs and have nothing left to do), you **MUST** use <finish/> to stop the loop.
 </rule>
 
 <rule name="task completion">
