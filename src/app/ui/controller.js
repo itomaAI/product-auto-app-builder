@@ -1,30 +1,28 @@
 // src/app/ui/controller.js
 
 (function(global) {
-    global.App = global.App || {};
-    global.App.UI = global.App.UI || {};
+	global.App = global.App || {};
+	global.App.UI = global.App.UI || {};
 
-    const DOM = global.App.UI.DOM;
+	const DOM = global.App.UI.DOM;
 
-    class UIController {
-        constructor(compiler) {
-            this.compiler = compiler;
-            this.els = {};
-            this.pendingUploads = [];
-            this.isEditorOpen = false;
+	class UIController {
+		constructor(compiler) {
+			this.compiler = compiler;
+			this.els = {};
+			this.pendingUploads = [];
+			this.isEditorOpen = false;
 
-            // Streaming State
-            this.currentStreamEl = null;
-            this.currentStreamContent = "";
+			// Streaming State
+			this.currentStreamEl = null;
+			this.currentStreamContent = "";
 
-            this._initElements();
-            this._bindInternalEvents();
-            this._initResizer();
-        }
+			this._initElements();
+			this._bindInternalEvents();
+			this._initResizer();
+		}
 
-        // ... (省略: _initElements, _bindInternalEvents, _initResizer, Project Management UI は変更なし) ...
-
-        _initElements() {
+		_initElements() {
 			for (const [key, id] of Object.entries(DOM)) {
 				const el = document.getElementById(id);
 				if (el) this.els[key] = el;
@@ -65,29 +63,52 @@
 		_initResizer() {
 			const resizer = document.getElementById('chat-resizer');
 			const panel = document.getElementById('chat-panel');
+			// iframe要素を取得
+			const iframe = document.getElementById('preview-frame');
+
 			if (!resizer || !panel) return;
+
 			let isResizing = false;
+
 			const startResize = (e) => {
 				isResizing = true;
 				document.body.style.cursor = 'col-resize';
 				resizer.classList.add('resizing');
+
+				// 【重要】ドラッグ中は iframe の操作を無効化する（イベント吸われ防止）
+				if (iframe) iframe.style.pointerEvents = 'none';
+
 				e.preventDefault();
 			};
+
 			const stopResize = () => {
+				if (!isResizing) return; // 既に停止してれば何もしない
 				isResizing = false;
 				document.body.style.cursor = '';
 				resizer.classList.remove('resizing');
+
+				// 【重要】操作を元に戻す
+				if (iframe) iframe.style.pointerEvents = '';
 			};
+
 			const resize = (e) => {
 				if (!isResizing) return;
 				const w = document.body.clientWidth - e.clientX;
 				if (w > 300 && w < 800) panel.style.width = `${w}px`;
+				e.preventDefault(); // 選択範囲などがちらつくのを防止
 			};
+
 			resizer.addEventListener('mousedown', startResize);
 			document.addEventListener('mousemove', resize);
 			document.addEventListener('mouseup', stopResize);
+
+			// 念のためウィンドウからフォーカスが外れた場合もリサイズを終了させる
+			window.addEventListener('blur', stopResize);
+			// マウスが画面外に出たままボタンを離した場合の保険
+			document.addEventListener('mouseleave', stopResize);
 		}
 
+		// --- Project Management UI ---
 		updateProjectName(name) {
 			if (this.els.projectName) this.els.projectName.textContent = name;
 			if (this.els.projectRenameInput) this.els.projectRenameInput.value = name;
@@ -170,243 +191,260 @@
 			} else el.classList.add('opacity-0');
 		}
 
-        // --- 2. Chat & Streaming ---
+		// --- 2. Chat & Streaming ---
 
-        startStreaming() {
-            const div = document.createElement('div');
-            div.className = "relative group p-3 rounded-lg text-sm mb-2 border border-transparent bg-gray-700 text-gray-200 mr-4 transition";
-            div.innerHTML = `<div class="flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase">MODEL (Streaming...)</div><div class="msg-content whitespace-pre-wrap break-all font-mono"></div>`;
+		startStreaming() {
+			const div = document.createElement('div');
+			// ストリーミング中はプレースホルダーとしてシンプルに表示
+			div.className = "relative group p-3 rounded-lg text-sm mb-2 border border-transparent bg-gray-700 text-gray-200 mr-4 transition";
+			div.innerHTML = `<div class="flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase">MODEL (Streaming...)</div><div class="msg-content whitespace-pre-wrap break-all font-mono"></div>`;
 
-            this.els.chatHistory.appendChild(div);
-            // 【修正】AI思考開始時は強制的にスクロール
-            this.scrollToBottom(true);
+			this.els.chatHistory.appendChild(div);
+			this.scrollToBottom();
 
-            this.currentStreamEl = div.querySelector('.msg-content');
-            this.currentStreamContent = "";
-        }
+			this.currentStreamEl = div.querySelector('.msg-content');
+			this.currentStreamContent = "";
+		}
 
-        updateStreaming(chunk) {
-            if (!this.currentStreamEl) return;
-            this.currentStreamContent += chunk;
-            this.currentStreamEl.textContent = this.currentStreamContent;
-            // ストリーミング中はユーザーがスクロールアップしていない限り追従
-            this.scrollToBottom(false);
-        }
+		updateStreaming(chunk) {
+			if (!this.currentStreamEl) return;
+			this.currentStreamContent += chunk;
+			this.currentStreamEl.textContent = this.currentStreamContent;
+			this.scrollToBottom();
+		}
 
-        finalizeStreaming() {
-            if (!this.currentStreamEl) return;
+		finalizeStreaming() {
+			if (!this.currentStreamEl) return;
 
-            this.currentStreamEl.classList.remove('whitespace-pre-wrap');
-            
-            // 先ほどの修正済みの _formatLPML を使用
-            this.currentStreamEl.innerHTML = this._formatLPML(this.currentStreamContent);
+			// 親コンテナの whitespace-pre-wrap を削除して隙間をなくす
+			this.currentStreamEl.classList.remove('whitespace-pre-wrap');
 
-            const header = this.currentStreamEl.parentElement.querySelector('div:first-child');
-            if (header) header.textContent = 'MODEL';
+			// タグごとに分割して整形
+			this.currentStreamEl.innerHTML = this._formatLPML(this.currentStreamContent);
 
-            this.currentStreamEl = null;
-            this.currentStreamContent = "";
-            this.scrollToBottom(false);
-        }
+			const header = this.currentStreamEl.parentElement.querySelector('div:first-child');
+			if (header) header.textContent = 'MODEL';
 
-        renderHistory(history) {
-            if (!this.els.chatHistory) return;
-            this.els.chatHistory.innerHTML = '';
-            history.forEach(turn => this.appendTurn(turn));
-            // 【修正】履歴読み込み完了時は強制的に最新を表示
-            this.scrollToBottom(true);
-        }
+			this.currentStreamEl = null;
+			this.currentStreamContent = "";
+			this.scrollToBottom();
+		}
 
-        appendTurn(turn) {
-            if (turn.meta && turn.meta.visible === false) return;
+		renderHistory(history) {
+			if (!this.els.chatHistory) return;
+			this.els.chatHistory.innerHTML = '';
+			history.forEach(turn => this.appendTurn(turn));
+			this.scrollToBottom();
+		}
 
-            const role = turn.role;
-            const content = turn.content;
+		appendTurn(turn) {
+			if (turn.meta && turn.meta.visible === false) return;
 
-            const div = document.createElement('div');
-            const baseClass = "relative group p-3 rounded-lg text-sm mb-2 border border-transparent transition";
+			const role = turn.role;
+			const content = turn.content;
 
-            if (role === 'user') {
-                div.className = `${baseClass} bg-blue-900 text-blue-100 ml-4`;
-            } else if (role === 'model') {
-                div.className = `${baseClass} bg-gray-700 text-gray-200 mr-4`;
-            } else {
-                div.className = `${baseClass} bg-gray-800 text-gray-400 text-xs mx-8 font-mono border-gray-600`;
-            }
+			const div = document.createElement('div');
+			const baseClass = "relative group p-3 rounded-lg text-sm mb-2 border border-transparent transition";
 
-            const header = document.createElement('div');
-            header.className = "flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase";
-            header.textContent = role;
-            div.appendChild(header);
+			if (role === 'user') {
+				div.className = `${baseClass} bg-blue-900 text-blue-100 ml-4`;
+			} else if (role === 'model') {
+				div.className = `${baseClass} bg-gray-700 text-gray-200 mr-4`;
+			} else {
+				div.className = `${baseClass} bg-gray-800 text-gray-400 text-xs mx-8 font-mono border-gray-600`;
+			}
 
-            const body = document.createElement('div');
+			const header = document.createElement('div');
+			header.className = "flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase";
+			header.textContent = role;
+			div.appendChild(header);
 
-            if (role === 'model') {
-                body.className = "break-all";
-            } else {
-                body.className = "whitespace-pre-wrap break-all";
-            }
+			const body = document.createElement('div');
 
-            if (typeof content === 'string') {
-                if (role === 'model') {
-                    body.innerHTML = this._formatLPML(content);
-                } else {
-                    body.textContent = content;
-                }
-            } else if (Array.isArray(content)) {
-                content.forEach(item => {
-                    if (item.text) {
-                        const p = document.createElement('p');
-                        p.textContent = item.text;
-                        body.appendChild(p);
-                    } else if (item.output) {
-                        const p = document.createElement('div');
-                        p.className = "mb-1";
-                        const uiText = item.output.ui || item.output.log || "";
-                        if (item.output.ui) {
-                            p.innerHTML = `<span class="text-blue-300 font-bold">${uiText}</span>`;
-                        } else {
-                            p.textContent = uiText;
-                        }
-                        body.appendChild(p);
+			// Model以外は pre-wrap を適用。Modelは内部で制御するため外す。
+			if (role === 'model') {
+				body.className = "break-all"; // whitespace-pre-wrap は付けない
+			} else {
+				body.className = "whitespace-pre-wrap break-all";
+			}
 
-                        if (item.output.image) {
-                            this._appendImage(body, item.output.image);
-                        }
-                    } else if (item.inlineData) {
-                        this._appendImage(body, item.inlineData.data);
-                    } else if (item.text && item.text.startsWith('<user_attachment')) {
-                        const fileBadge = document.createElement('div');
-                        fileBadge.className = "text-xs bg-gray-900 px-2 py-1 rounded border border-gray-600 text-yellow-300 font-mono inline-block my-1";
-                        const nameMatch = item.text.match(/name="([^"]+)"/);
-                        fileBadge.textContent = `📎 ${nameMatch ? nameMatch[1] : 'File'}`;
-                        body.appendChild(fileBadge);
-                    }
-                });
-            }
+			if (typeof content === 'string') {
+				if (role === 'model') {
+					body.innerHTML = this._formatLPML(content);
+				} else {
+					body.textContent = content;
+				}
+			} else if (Array.isArray(content)) {
+				content.forEach(item => {
+					if (item.text) {
+						const p = document.createElement('p');
+						p.textContent = item.text;
+						body.appendChild(p);
+					} else if (item.output) {
+						const p = document.createElement('div');
+						p.className = "mb-1";
+						const uiText = item.output.ui || item.output.log || "";
+						if (item.output.ui) {
+							p.innerHTML = `<span class="text-blue-300 font-bold">${uiText}</span>`;
+						} else {
+							p.textContent = uiText;
+						}
+						body.appendChild(p);
 
-            div.appendChild(body);
-            this.els.chatHistory.appendChild(div);
+						if (item.output.image) {
+							this._appendImage(body, item.output.image);
+						}
+					} else if (item.inlineData) {
+						this._appendImage(body, item.inlineData.data);
+					} else if (item.text && item.text.startsWith('<user_attachment')) {
+						const fileBadge = document.createElement('div');
+						fileBadge.className = "text-xs bg-gray-900 px-2 py-1 rounded border border-gray-600 text-yellow-300 font-mono inline-block my-1";
+						const nameMatch = item.text.match(/name="([^"]+)"/);
+						fileBadge.textContent = `📎 ${nameMatch ? nameMatch[1] : 'File'}`;
+						body.appendChild(fileBadge);
+					}
+				});
+			}
 
-            // 【修正】ユーザー自身の発言は強制スクロール
-            const forceScroll = (role === 'user');
-            this.scrollToBottom(forceScroll);
-        }
+			div.appendChild(body);
+			this.els.chatHistory.appendChild(div);
+			this.scrollToBottom();
+		}
 
-        // --- Helper: LPML Formatter (修正済み) ---
-        _formatLPML(text) {
-            const escape = (str) => {
-                const div = document.createElement('div');
-                div.textContent = str;
-                return div.innerHTML;
-            };
+		// --- Helper: LPML Formatter ---
 
-            const ALLOWED_TAGS = [
-                'thinking', 'plan', 'report', 'ask', 'finish',
-                'create_file', 'edit_file', 'read_file', 'delete_file', 'move_file',
-                'list_files', 'preview', 'take_screenshot',
-                'tool_outputs', 'user_input'
-            ].join('|');
+		_formatLPML(text) {
+			// 1. 安全なエスケープ (HTMLエンティティ化)
+			// これにより、ソースコード中の <div> などは &lt;div&gt; になる
+			const escape = (str) => {
+				const div = document.createElement('div');
+				div.textContent = str;
+				return div.innerHTML;
+			};
 
-            const TAG_REGEX = new RegExp(
-                `&lt;(${ALLOWED_TAGS})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
-                `&lt;(${ALLOWED_TAGS})([^&]*)\\/&gt;`,
-                'g'
-            );
+			// ホワイトリスト: これら以外のタグはソースコードとみなし、UI整形しない
+			const ALLOWED_TAGS = [
+				'thinking', 'plan', 'report', 'ask', 'finish',
+				'create_file', 'edit_file', 'read_file', 'delete_file', 'move_file',
+				'list_files', 'preview', 'take_screenshot',
+				'tool_outputs', 'user_input'
+			].join('|');
 
-            let safeText = escape(text);
-            const parts = [];
-            let lastIndex = 0;
-            let match;
+			// 2. 正規表現定義
+			// <tag attrs...>content</tag> または <tag attrs... />
+			// ホワイトリストにあるタグ名のみをキャプチャする
+			// 修正: 既知のタグ以外はマッチさせない
+			const TAG_REGEX = new RegExp(
+				`&lt;(${ALLOWED_TAGS})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
+				`&lt;(${ALLOWED_TAGS})([^&]*)\\/&gt;`,
+				'g'
+			);
 
-            while ((match = TAG_REGEX.exec(safeText)) !== null) {
-                const gap = safeText.substring(lastIndex, match.index);
-                if (gap.trim()) {
-                    parts.push(`<div class="text-gray-400 text-xs my-1 whitespace-pre-wrap">${gap}</div>`);
-                }
-                parts.push(this._createTagHTML(match));
-                lastIndex = TAG_REGEX.lastIndex;
-            }
+			let safeText = escape(text);
 
-            const remaining = safeText.substring(lastIndex);
-            if (remaining.trim()) {
-                parts.push(`<div class="text-gray-400 text-xs my-1 whitespace-pre-wrap">${remaining}</div>`);
-            }
-            return parts.join('');
-        }
+			const parts = [];
+			let lastIndex = 0;
+			let match;
 
-        _createTagHTML(match) {
-            const tagName = match[1] || match[4];
-            const attributes = match[2] || match[5] || "";
-            const innerContent = match[3] || "";
+			while ((match = TAG_REGEX.exec(safeText)) !== null) {
+				// マッチの手前にあるテキスト（隙間）
+				// ここにはソースコード内のタグ（&lt;div&gt;など）が含まれる可能性があるが
+				// 既にエスケープされているのでそのまま表示して安全
+				const gap = safeText.substring(lastIndex, match.index);
 
-            let title = tagName;
-            let colorClass = "border-gray-600 bg-gray-800";
-            let isOpen = false;
+				if (gap.trim()) {
+					parts.push(`<div class="text-gray-400 text-xs my-1 whitespace-pre-wrap">${gap}</div>`);
+				}
 
-            if (tagName === 'thinking') {
-                title = "💭 Thinking Process";
-                colorClass = "border-blue-900 bg-blue-900/20";
-                isOpen = false;
-            } else if (tagName === 'plan') {
-                title = "📅 Plan";
-                colorClass = "border-green-900 bg-green-900/20";
-                isOpen = false;
-            } else if (tagName === 'create_file' || tagName === 'edit_file') {
-                const pathMatch = attributes.match(/path=["']?([^"'\s]+)["']?/);
-                const path = pathMatch ? pathMatch[1] : "unknown";
-                title = `📝 ${tagName === 'create_file' ? 'Create' : 'Edit'}: ${path}`;
-                colorClass = "border-yellow-900 bg-yellow-900/20";
-                isOpen = false;
-            } else if (tagName === 'read_file') {
-                title = "📖 Read File";
-                colorClass = "border-gray-600 bg-gray-800";
-                isOpen = false;
-            } else if (tagName === 'report' || tagName === 'ask') {
-                title = tagName === 'ask' ? "❓ Question" : "📢 Report";
-                colorClass = "border-indigo-900 bg-indigo-900/40";
-                isOpen = true;
-            } else if (tagName === 'finish') {
-                title = "✅ Task Completed";
-                colorClass = "border-green-600 bg-green-900/60";
-                isOpen = true;
-            }
+				// タグ部分のHTML変換
+				const tagHTML = this._createTagHTML(match);
+				parts.push(tagHTML);
 
-            const openAttr = isOpen ? 'open' : '';
-            let displayContent = innerContent.trim();
-            if (attributes.trim()) {
-                displayContent = `<div class="text-[10px] text-gray-500 mb-1 border-b border-gray-700 pb-1">Attributes: ${attributes.trim()}</div>${displayContent}`;
-            }
+				lastIndex = TAG_REGEX.lastIndex;
+			}
 
-            if (!displayContent) {
-                return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block">&lt;${tagName}${attributes} /&gt;</div>`;
-            }
+			// 残りのテキスト
+			const remaining = safeText.substring(lastIndex);
+			if (remaining.trim()) {
+				parts.push(`<div class="text-gray-400 text-xs my-1 whitespace-pre-wrap">${remaining}</div>`);
+			}
 
-            return `
+			return parts.join('');
+		}
+
+		_createTagHTML(match) {
+			// match: [full, tag, attrs, content, emptyTag, emptyAttrs]
+			const tagName = match[1] || match[4];
+			const attributes = match[2] || match[5] || "";
+			const innerContent = match[3] || "";
+
+			let title = tagName;
+			let colorClass = "border-gray-600 bg-gray-800";
+			let isOpen = false;
+
+			if (tagName === 'thinking') {
+				title = "💭 Thinking Process";
+				colorClass = "border-blue-900 bg-blue-900/20";
+				isOpen = false;
+			} else if (tagName === 'plan') {
+				title = "📅 Plan";
+				colorClass = "border-green-900 bg-green-900/20";
+				isOpen = false;
+			} else if (tagName === 'create_file' || tagName === 'edit_file') {
+				const pathMatch = attributes.match(/path=["']?([^"'\s]+)["']?/);
+				const path = pathMatch ? pathMatch[1] : "unknown";
+				title = `📝 ${tagName === 'create_file' ? 'Create' : 'Edit'}: ${path}`;
+				colorClass = "border-yellow-900 bg-yellow-900/20";
+				isOpen = false;
+			} else if (tagName === 'read_file') {
+				title = "📖 Read File";
+				colorClass = "border-gray-600 bg-gray-800";
+				isOpen = false;
+			} else if (tagName === 'report' || tagName === 'ask') {
+				title = tagName === 'ask' ? "❓ Question" : "📢 Report";
+				colorClass = "border-indigo-900 bg-indigo-900/40";
+				isOpen = true; // ユーザーへのメッセージは開く
+			} else if (tagName === 'finish') {
+				title = "✅ Task Completed";
+				colorClass = "border-green-600 bg-green-900/60";
+				isOpen = true;
+			}
+
+			const openAttr = isOpen ? 'open' : '';
+
+			let displayContent = innerContent.trim();
+			// 属性情報の表示
+			if (attributes.trim()) {
+				displayContent = `<div class="text-[10px] text-gray-500 mb-1 border-b border-gray-700 pb-1">Attributes: ${attributes.trim()}</div>${displayContent}`;
+			}
+
+			// 空タグまたは中身なしの場合
+			if (!displayContent) {
+				return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block">&lt;${tagName}${attributes} /&gt;</div>`;
+			}
+
+			// <details> でラップ。内部は pre-wrap で改行維持
+			// innerContent は既にHTMLエスケープ済みなので、innerHTMLで入れても安全かつタグとして機能しない
+			return `
             <details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group">
                 <summary class="cursor-pointer p-2 text-xs font-bold text-gray-300 bg-black/20 hover:bg-black/40 select-none flex items-center gap-2">
                     <span class="group-open:rotate-90 transition-transform">▶</span> ${title}
                 </summary>
                 <div class="p-2 text-xs font-mono overflow-x-auto bg-black/10 whitespace-pre-wrap">${displayContent}</div>
             </details>`;
-        }
+		}
 
-        _appendImage(container, base64) {
-            const img = document.createElement('img');
-            img.src = `data:image/png;base64,${base64}`;
-            img.className = "h-24 rounded border border-gray-600 cursor-pointer hover:opacity-80 bg-gray-900 mt-2 object-contain";
-            
-            // 【修正】画像ロード完了時に高さを再計算してスクロール
-            img.onload = () => this.scrollToBottom(false);
-
-            img.onclick = () => {
-                const w = window.open("");
-                w.document.write(`<img src="${img.src}" style="max-width:100%">`);
-            };
-            container.appendChild(img);
-        }
-
-        renderUploadPreview(file) {
+		_appendImage(container, base64) {
+			const img = document.createElement('img');
+			img.src = `data:image/png;base64,${base64}`;
+			img.className = "h-24 rounded border border-gray-600 cursor-pointer hover:opacity-80 bg-gray-900 mt-2 object-contain";
+			img.onclick = () => {
+				const w = window.open("");
+				w.document.write(`<img src="${img.src}" style="max-width:100%">`);
+			};
+			container.appendChild(img);
+		}
+		renderUploadPreview(file) {
 			if (!this.els.filePreviewArea) return;
 			this.els.filePreviewArea.classList.remove('hidden');
 			const div = document.createElement('div');
@@ -419,27 +457,17 @@
 			this.els.filePreviewArea.innerHTML = "";
 			this.els.filePreviewArea.classList.add('hidden');
 		}
+		scrollToBottom() {
+			if (!this.els.chatHistory) return;
 
-        // 【修正】スクロール制御の改善
-        scrollToBottom(force = false) {
-            if (!this.els.chatHistory) return;
-            
-            const el = this.els.chatHistory;
-            const threshold = 100; // 100px以内なら「一番下」とみなす
-            
-            // スクロール可能な余白 (全体の高さ - 表示領域 - 現在のスクロール位置)
-            const scrollBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
-            const isAtBottom = scrollBottom <= threshold;
+			const el = this.els.chatHistory;
+			const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 100;
 
-            if (force || isAtBottom) {
-                // requestAnimationFrameを使うと、レンダリング完了後のタイミングでスクロールできることがありスムーズ
-                requestAnimationFrame(() => {
-                    el.scrollTop = el.scrollHeight;
-                });
-            }
-        }
-
-        setProcessing(isProcessing) {
+			if (isAtBottom) {
+				el.scrollTop = el.scrollHeight;
+			}
+		}
+		setProcessing(isProcessing) {
 			if (this.els.btnSend) this.els.btnSend.classList.toggle('hidden', isProcessing);
 			if (this.els.btnStop) this.els.btnStop.classList.toggle('hidden', !isProcessing);
 			if (this.els.aiTyping) this.els.aiTyping.classList.toggle('hidden', !isProcessing);
@@ -523,8 +551,8 @@
 				}, '*');
 			});
 		}
-    }
+	}
 
-    global.App.UI.UIController = UIController;
+	global.App.UI.UIController = UIController;
 
 })(window);

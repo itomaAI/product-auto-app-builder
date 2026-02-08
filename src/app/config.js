@@ -395,22 +395,28 @@ Content:
 </define_tag>
 
 <define_tag name="edit_file">
-Modifies specific lines in a file.
+Modifies a file.
 Attributes:
-    - path: The target file path.
-    - start: The starting line number (1-based integer).
-    - end: The ending line number (1-based integer). Required for "replace" and "delete".
-    - mode: Action mode ("replace" | "insert" | "delete").
+    - path: Target file path.
 Content:
-    - The new code lines (Required for "replace" and "insert").
-    - Empty for "delete".
-Notes:
-    - **CRITICAL**: Line numbers refer to the **ORIGINAL** file state at the beginning of the turn.
-    - mode="insert": Inserts content **BEFORE** the line specified in 'start'. 
-      (e.g., start="1" inserts at the very top. start="100" inserts before line 100).
-      To append to the end of a file with N lines, use start="N+1".
-    - mode="replace": Overwrites lines from 'start' to 'end' inclusive.
-    - Do not guess line numbers. Use <read_file> if unsure.
+    **OPTION 1: Regex Replacement (RECOMMENDED)**
+    Use strict markers to define the search pattern and replacement string.
+
+    Constraint:
+    - **You MUST provide only ONE replacement block per <edit_file> tag.**
+    - If you need to modify multiple locations, use multiple <edit_file> tags.
+
+    Format:
+    <<<<SEARCH
+    (Regex pattern)
+    ====
+    (Replacement)
+    >>>>
+
+    **OPTION 2: Line-based Editing (Use ONLY for appending or creating structure)**
+    Attributes required: mode="replace"|"insert"|"delete", start, end.
+    - mode="insert": Inserts content BEFORE the line specified in 'start'.
+    - mode="replace": Overwrites lines from 'start' to 'end'.
 </define_tag>
 
 <define_tag name="read_file">

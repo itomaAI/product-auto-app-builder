@@ -8,10 +8,8 @@
 
         registry.register('list_files', async (params, state) => {
             const files = vfs.listFiles();
-            // .sample ディレクトリなどは除外するか、あるいは隠しファイルとして扱うか
-            // LLMには全容を見せるためそのまま返す
             return {
-                log: `[list_files] ${files.join(', ')}`,
+                log: `[list_files]\n${files.join('\n')}`, 
                 ui: `📂 Listed ${files.length} files`
             };
         });

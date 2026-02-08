@@ -1,126 +1,155 @@
 // src/app/world/vfs.js
 
 (function(global) {
-    global.App = global.App || {};
-    global.App.World = global.App.World || {};
+	global.App = global.App || {};
+	global.App.World = global.App.World || {};
 
-    class VirtualFileSystem {
-        constructor(initialFiles = {}) {
-            this.files = { ...initialFiles };
-            this.listeners = [];
-        }
+	class VirtualFileSystem {
+		constructor(initialFiles = {}) {
+			this.files = {
+				...initialFiles
+			};
+			this.listeners = [];
+		}
 
-        subscribe(callback) {
-            this.listeners.push(callback);
-            return () => this.listeners = this.listeners.filter(cb => cb !== callback);
-        }
+		subscribe(callback) {
+			this.listeners.push(callback);
+			return () => this.listeners = this.listeners.filter(cb => cb !== callback);
+		}
 
-        notify() {
-            this.listeners.forEach(cb => cb(this.files));
-        }
+		notify() {
+			this.listeners.forEach(cb => cb(this.files));
+		}
 
-        exists(path) {
-            return Object.prototype.hasOwnProperty.call(this.files, path);
-        }
+		exists(path) {
+			return Object.prototype.hasOwnProperty.call(this.files, path);
+		}
 
-        readFile(path) {
-            if (!this.exists(path)) throw new Error(`File not found: ${path}`);
-            return this.files[path];
-        }
+		readFile(path) {
+			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
+			return this.files[path];
+		}
 
-        readLines(path, startLine = 1, endLine = 999999) {
-            const content = this.readFile(path);
-            const lines = content.split(/\r?\n/);
-            const s = Math.max(0, parseInt(startLine) - 1);
-            const e = Math.min(lines.length, parseInt(endLine));
-            return lines.slice(s, e);
-        }
+		readLines(path, startLine = 1, endLine = 999999) {
+			const content = this.readFile(path);
+			const lines = content.split(/\r?\n/);
+			const s = Math.max(0, parseInt(startLine) - 1);
+			const e = Math.min(lines.length, parseInt(endLine));
+			return lines.slice(s, e);
+		}
 
-        writeFile(path, content) {
-            this.files[path] = content;
-            this.notify();
-            return `Wrote ${content.length} chars to ${path}`;
-        }
+		writeFile(path, content) {
+			this.files[path] = content;
+			this.notify();
+			return `Wrote ${content.length} chars to ${path}`;
+		}
 
-        deleteFile(path) {
-            if (this.exists(path)) {
-                delete this.files[path];
-                this.notify();
-                return `Deleted ${path}`;
-            }
-            return `File ${path} did not exist.`;
-        }
+		deleteFile(path) {
+			if (this.exists(path)) {
+				delete this.files[path];
+				this.notify();
+				return `Deleted ${path}`;
+			}
+			return `File ${path} did not exist.`;
+		}
 
-        moveFile(oldPath, newPath) {
-            if (!this.exists(oldPath)) throw new Error(`Source ${oldPath} not found.`);
-            if (this.exists(newPath)) throw new Error(`Destination ${newPath} already exists.`);
-            
-            this.files[newPath] = this.files[oldPath];
-            delete this.files[oldPath];
-            this.notify();
-            return `Moved ${oldPath} to ${newPath}`;
-        }
+		moveFile(oldPath, newPath) {
+			if (!this.exists(oldPath)) throw new Error(`Source ${oldPath} not found.`);
+			if (this.exists(newPath)) throw new Error(`Destination ${newPath} already exists.`);
 
-        listFiles() {
-            return Object.keys(this.files).sort();
-        }
+			this.files[newPath] = this.files[oldPath];
+			delete this.files[oldPath];
+			this.notify();
+			return `Moved ${oldPath} to ${newPath}`;
+		}
 
-        editLines(path, startLine, endLine, mode, newContent = "") {
-            if (!this.exists(path)) throw new Error(`File not found: ${path}`);
+		listFiles() {
+			return Object.keys(this.files).sort();
+		}
 
-            const content = this.files[path];
-            let lines = content.split(/\r?\n/);
+		/**
+		 * 正規表現による置換 (New)
+		 * @param {string} path 
+		 * @param {string} patternStr - 正規表現パターン文字列
+		 * @param {string} replacement - 置換後の文字列
+		 */
+		replaceContent(path, patternStr, replacement) {
+			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
 
-            // 1. Newline Sanitization
-            // タグ直後の改行(\n)と、閉じタグ直前の改行(\n)のみを除去する。
-            // これをしないと、編集のたびに空行が増殖していく。
-            let cleanContent = newContent;
-            
-            // 先頭の改行のみ削除
-            if (cleanContent.startsWith('\n')) cleanContent = cleanContent.substring(1);
-            // 末尾の改行のみ削除
-            if (cleanContent.endsWith('\n')) cleanContent = cleanContent.substring(0, cleanContent.length - 1);
+			const content = this.files[path];
 
-            const newLines = cleanContent.split(/\r?\n/);
+			// フラグ 'm' (multiline) は必須。's' (dotAll) はブラウザ依存があるため、
+			// 改行マッチには [\s\S] を使うようプロンプトで促す方が無難だが、
+			// 最近のブラウザなら 's' も使えることが多い。一旦 'gm' とする。
+			// 'g' (global) をつけるかどうかは議論の余地があるが、
+			// コード編集で予期せぬ箇所まで変わるのは危険なので、まずは「最初の1箇所」だけ置換する仕様にする。
 
-            // 1-based to 0-based
-            const sLine = parseInt(startLine);
-            const sIdx = Math.max(0, sLine - 1);
-            const eLine = parseInt(endLine); // replace/delete用
+			let regex;
+			try {
+				regex = new RegExp(patternStr, 'm');
+			} catch (e) {
+				throw new Error(`Invalid Regular Expression: ${e.message}`);
+			}
 
-            if (mode === 'replace') {
-                if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='replace'");
-                const deleteCount = Math.max(0, eLine - sLine + 1);
-                
-                // 配列外アクセス防止（ファイルの末尾より先を指定された場合のパディング）
-                while (lines.length < sIdx) lines.push("");
-                
-                lines.splice(sIdx, deleteCount, ...newLines);
-            } 
-            else if (mode === 'insert') {
-                // "start行目の前" に挿入する (標準的なspliceの挙動)
-                // start=1 なら index=0 (先頭) に挿入
-                // start=Length+1 なら 末尾に追加
-                while (lines.length < sIdx) lines.push("");
-                lines.splice(sIdx, 0, ...newLines);
-            }
-            else if (mode === 'delete') {
-                if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='delete'");
-                const deleteCount = Math.max(0, eLine - sLine + 1);
-                if (sIdx < lines.length) {
-                    lines.splice(sIdx, deleteCount);
-                }
-            }
-            else {
-                throw new Error(`Unknown edit mode: ${mode}`);
-            }
+			if (!regex.test(content)) {
+				// デバッグしやすいように、パターンの先頭一部だけエラーメッセージに含める
+				const disp = patternStr.length > 50 ? patternStr.substring(0, 50) + "..." : patternStr;
+				throw new Error(`Pattern not found in ${path}.\nPattern: ${disp}`);
+			}
 
-            this.files[path] = lines.join('\n');
-            this.notify();
-            return `Edited ${path} (Mode: ${mode}, Lines: ${startLine}${mode === 'insert' ? '' : '-' + endLine})`;
-        }
-    }
+			// 置換実行
+			// String.prototype.replace は正規表現を渡すと、最初のマッチのみ置換する（gフラグがない場合）
+			const newContent = content.replace(regex, replacement);
 
-    global.App.World.VirtualFileSystem = VirtualFileSystem;
+			// 変更がなかった場合（testは通ったがreplaceで変わらなかった奇妙なケース）
+			if (newContent === content) {
+				throw new Error(`Pattern matched but replacement resulted in no change.`);
+			}
+
+			this.files[path] = newContent;
+			this.notify();
+			return `Replaced pattern match in ${path}`;
+		}
+
+		// --- 従来の行指定編集 (Fallback用) ---
+		editLines(path, startLine, endLine, mode, newContent = "") {
+			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
+
+			const content = this.files[path];
+			let lines = content.split(/\r?\n/);
+
+			// 1. Newline Sanitization
+			let cleanContent = newContent;
+			if (cleanContent.startsWith('\n')) cleanContent = cleanContent.substring(1);
+			if (cleanContent.endsWith('\n')) cleanContent = cleanContent.substring(0, cleanContent.length - 1);
+
+			const newLines = cleanContent.split(/\r?\n/);
+			const sLine = parseInt(startLine);
+			const sIdx = Math.max(0, sLine - 1);
+			const eLine = parseInt(endLine);
+
+			if (mode === 'replace') {
+				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='replace'");
+				const deleteCount = Math.max(0, eLine - sLine + 1);
+				while (lines.length < sIdx) lines.push("");
+				lines.splice(sIdx, deleteCount, ...newLines);
+			} else if (mode === 'insert') {
+				while (lines.length < sIdx) lines.push("");
+				lines.splice(sIdx, 0, ...newLines);
+			} else if (mode === 'delete') {
+				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='delete'");
+				const deleteCount = Math.max(0, eLine - sLine + 1);
+				if (sIdx < lines.length) lines.splice(sIdx, deleteCount);
+			} else {
+				throw new Error(`Unknown edit mode: ${mode}`);
+			}
+
+			this.files[path] = lines.join('\n');
+			this.notify();
+			return `Edited ${path} (Mode: ${mode}, Lines: ${startLine}${mode === 'insert' ? '' : '-' + endLine})`;
+		}
+	}
+
+	global.App.World.VirtualFileSystem = VirtualFileSystem;
 
 })(window);
