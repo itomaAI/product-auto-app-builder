@@ -5,6 +5,8 @@ Node.js や Python などのバックエンド環境は一切不要。`index.htm
 
 本ツールは、LLMの自律的な思考と実行のループを定義する **ALLA (Autonomous LLM Loop Architecture)** に基づいて設計されており、単なるチャットボットではなく、自律的に試行錯誤を行うエンジニアエージェントとして振る舞います。
 
+[**今すぐ試す**](https://itomaai.github.io/product-auto-app-builder/)
+
 ## 🚀 主な特徴
 
 *   **完全ローカル & サーバーレス**: すべての処理はブラウザ内の JavaScript で完結します。データが外部サーバー（Google API以外）に送信されることはありません。
