@@ -21,17 +21,14 @@
 			};
 		});
 
-		registry.register('take_screenshot', async (params, state) => {
-			// まずプレビューを確実に最新にする
-			await uiController.refreshPreview(state.vfs);
-
-			// 少し待機 (レンダリング待ち)
-			await new Promise(r => setTimeout(r, 500));
+		registry.register('take_screenshot', async (params, state) => {			
+			// 描画が安定するまで少し待つ
+			await new Promise(r => setTimeout(r, 1000));
 
 			try {
 				const base64 = await uiController.captureScreenshot();
 				return {
-					log: `[take_screenshot] Captured.`,
+					log: `[take_screenshot] Captured current view.`,
 					ui: `📸 Screenshot Captured`,
 					image: base64 // ProjectorがinlineDataにする
 				};
