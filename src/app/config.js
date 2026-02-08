@@ -356,6 +356,15 @@ Contains a message from the user.
 2. **No Tool = Finish**: If you have no further tools to run (e.g., you are just answering a question, or you have verified the previous tool outputs and have nothing left to do), you **MUST** use <finish/> to stop the loop.
 </rule>
 
+<rule name="task planning">
+For complex tasks, create detailed plans and TODO lists under the .plan/ directory, and proceed based on them.
+Clearly state the purpose, procedures, and completion criteria for each step in the plan.
+This plan is preserved beyond the current context and can be referenced in subsequent turns.
+Enhance task execution accuracy and consistency through plan creation and reference.
+It is advisable to seek user review after creating the plan.
+Update the TODO list as the plan progresses, marking completed steps.
+</rule>
+
 <rule name="task completion">
 If you determine that the task is complete and no further actions are necessary, you may use the <finish/> tag to conclude.
 </rule>

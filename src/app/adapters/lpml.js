@@ -4,12 +4,14 @@
 	global.App = global.App || {};
 	global.App.Adapters = global.App.Adapters || {};
 
-	// 既存のRegexロジックをカプセル化
 	class LPMLRegexParser {
 		static PATTERN_ATTRIBUTE = / ([^"'/<> -]+)=(?:"([^"]*)"|'([^']*)')/g;
-		static PATTERN_TAG_START = `<([^/>\\s\\n]+)((?:${" [^\"'/<> -]+=(?:\"[^\"]*\"|'[^']*')"})*)\\s*>`;
-		static PATTERN_TAG_END = `</([^/>\\s\\n]+)\\s*>`;
-		static PATTERN_TAG_EMPTY = `<([^/>\\s\\n]+)((?:${" [^\"'/<> -]+=(?:\"[^\"]*\"|'[^']*')"})*)\\s*/>`;
+
+		// 複雑な入れ子を防ぐため、文字列連結でパターンを定義
+		static PATTERN_TAG_START = '<' + '([^/>\\s\\n]+)((?:' + " [^\"'/<> -]+=(?:\"[^\"]*\"|'[^']*')" + ')*)\\s*' + '>';
+		static PATTERN_TAG_END = '<' + '/([^/>\\s\\n]+)\\s*' + '>';
+		static PATTERN_TAG_EMPTY = '<' + '([^/>\\s\\n]+)((?:' + " [^\"'/<> -]+=(?:\"[^\"]*\"|'[^']*')" + ')*)\\s*' + '/>';
+
 		static PATTERN_TAG = new RegExp(`(${LPMLRegexParser.PATTERN_TAG_START})|(${LPMLRegexParser.PATTERN_TAG_END})|(${LPMLRegexParser.PATTERN_TAG_EMPTY})`, 'g');
 		static PATTERN_PROTECT = /(`[\s\S]*?`|<!--[\s\S]*?-->|<![\s\S]*?>)/g;
 
@@ -61,22 +63,29 @@
 
 			const regexTag = new RegExp(LPMLRegexParser.PATTERN_TAG);
 			let match;
-			const regexStart = new RegExp(`^${LPMLRegexParser.PATTERN_TAG_START}$`);
-			const regexEnd = new RegExp(`^${LPMLRegexParser.PATTERN_TAG_END}$`);
-			const regexEmpty = new RegExp(`^${LPMLRegexParser.PATTERN_TAG_EMPTY}$`);
+
+			// 【修正】正規表現オブジェクトを正しく再構築
+			const regexStart = new RegExp('^' + LPMLRegexParser.PATTERN_TAG_START + '$');
+			const regexEnd = new RegExp('^' + LPMLRegexParser.PATTERN_TAG_END + '$');
+			const regexEmpty = new RegExp('^' + LPMLRegexParser.PATTERN_TAG_EMPTY + '$');
 
 			while ((match = regexTag.exec(protectedText)) !== null) {
 				const tagStr = match[0];
 				const indTagStart = match.index;
 				const indTagEnd = indTagStart + tagStr.length;
 
-				// Exclude処理 (create_fileの中身などはパースしない)
 				const matchTagStart = tagStr.match(regexStart);
 				const matchTagEnd = tagStr.match(regexEnd);
 
 				if (tagExclude !== null) {
-					if (matchTagEnd && matchTagEnd[1] === tagExclude) tagExclude = null;
-					else continue;
+					if (matchTagEnd && matchTagEnd[1] === tagExclude) {
+						tagExclude = null;
+					} else {
+						// 【修正】除外モード中は、タグに見えるものも「ただのテキスト」として保存する
+						// これがないとソースコード内のタグ風文字列が消滅する
+						stack[stack.length - 1].content.push(tagStr);
+						continue;
+					}
 				}
 
 				const contentStr = protectedText.substring(cursor, indTagStart).trim();
@@ -115,23 +124,18 @@
 		}
 	}
 
-	// --- Adapter Implementation ---
-
 	class LPMLAdapter extends global.ALLA.ParserAdapter {
 		constructor() {
 			super();
-			// これらの中身はタグとしてパースせず、raw textとして扱う
+			// raw textとして扱うタグ
 			this.excludeTags = ['create_file', 'edit_file'];
 		}
 
 		parse(text) {
 			const tree = LPMLRegexParser.parseToTree(text, this.excludeTags);
 
-			// ツリー構造をフラットなActionリストに変換
-			// Note: ルート直下の要素のみをAction候補とする（ネストされたタグはコンテンツ扱い）
 			let rawActions = tree.filter(item => typeof item === 'object');
 
-			// 1. 分類 (Immediate vs Interrupt)
 			const edits = [];
 			const others = [];
 			const interrupts = [];
@@ -166,8 +170,6 @@
 				return startB - startA;
 			});
 
-			// 3. 結合 (Others -> Edits -> Interrupts)
-			// ※ Interruptがあっても、その前の作業は実行する仕様
 			return [...others, ...edits, ...interrupts];
 		}
 

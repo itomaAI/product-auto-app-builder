@@ -34,6 +34,18 @@
             }
         });
 
+		registry.register('copy_file', async (params, state) => {
+			try {
+				const msg = vfs.copyFile(params.path, params.new_path);
+				return {
+					log: `[copy_file] ${msg}`,
+					ui: `📄 ${msg}`
+				};
+			} catch (e) {
+				throw new Error(e.message);
+			}
+		});
+
     };
 
 })(window);

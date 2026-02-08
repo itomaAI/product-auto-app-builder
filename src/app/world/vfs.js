@@ -63,6 +63,15 @@
 			return `Moved ${oldPath} to ${newPath}`;
 		}
 
+		copyFile(srcPath, destPath) {
+			if (!this.exists(srcPath)) throw new Error(`Source ${srcPath} not found.`);
+			if (this.exists(destPath)) throw new Error(`Destination ${destPath} already exists.`);
+
+			this.files[destPath] = this.files[srcPath];
+			this.notify();
+			return `Copied ${srcPath} to ${destPath}`;
+		}
+
 		listFiles() {
 			return Object.keys(this.files).sort();
 		}
