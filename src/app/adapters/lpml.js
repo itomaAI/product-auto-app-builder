@@ -141,13 +141,16 @@
                 }
             }
 
-            // 2. ソートロジック (MetaForge v1の仕様を継承)
-            // edit_file は Path昇順 -> Start Line降順 (下から編集しないと行ズレするため)
             edits.sort((a, b) => {
                 const pathA = a.params.path || "";
                 const pathB = b.params.path || "";
                 if (pathA !== pathB) return pathA.localeCompare(pathB);
-                return parseInt(b.params.start || 0) - parseInt(a.params.start || 0);
+                
+                const startA = parseInt(a.params.start || 0);
+                const startB = parseInt(b.params.start || 0);
+
+                if (startB !== startA) return startB - startA;
+                return 0; 
             });
 
             // 3. 結合 (Others -> Edits -> Interrupts)

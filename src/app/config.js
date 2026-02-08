@@ -399,14 +399,15 @@ Modifies specific lines in a file.
 Attributes:
     - path: The target file path.
     - start: The starting line number (1-based integer).
-    - end: The ending line number (1-based integer).
+    - end: The ending line number (1-based integer). Required for "replace" and "delete".
     - mode: Action mode ("replace" | "insert_after" | "delete").
 Content:
     - The new code lines (Required for "replace" and "insert_after").
     - Empty for "delete".
 Notes:
+    - **CRITICAL**: Line numbers refer to the **ORIGINAL** file state at the beginning of the turn. Do not calculate offsets based on previous edits in the same turn.
+    - For "insert_after", content will be inserted strictly AFTER the line specified in 'start'.
     - Do not guess line numbers. Use <read_file> if unsure.
-    - Multiple edits to the same file are allowed in one turn.
 </define_tag>
 
 <define_tag name="read_file">

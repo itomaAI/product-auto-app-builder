@@ -65,26 +65,38 @@
             return Object.keys(this.files).sort();
         }
 
-        // 行単位の編集ロジック（LLMにとって非常に重要）
         editLines(path, startLine, endLine, mode, newContent = "") {
             if (!this.exists(path)) throw new Error(`File not found: ${path}`);
 
             const content = this.files[path];
             let lines = content.split(/\r?\n/);
-            const newLines = newContent ? newContent.split(/\r?\n/) : [];
+
+            // 1. Content Sanitization (XML artifact removal)
+            // <edit_file>直後の改行と、</edit_file>直前の改行を取り除く
+            let cleanContent = newContent;
+            if (cleanContent.startsWith('\n')) cleanContent = cleanContent.slice(1);
+            if (cleanContent.endsWith('\n')) cleanContent = cleanContent.slice(0, -1);
+            
+            const newLines = cleanContent ? cleanContent.split(/\r?\n/) : [];
             
             const sLine = parseInt(startLine);
-            const eLine = parseInt(endLine);
+            // endLineが未指定(NaN)の場合はstartLineと同じとみなす（insert_after等で安全のため）
+            const eLine = isNaN(parseInt(endLine)) ? sLine : parseInt(endLine);
+            
+            // 0-based index conversion
             const sIdx = Math.max(0, sLine - 1);
 
             if (mode === 'replace') {
+                // startからendまでを削除して置換
                 const deleteCount = Math.max(0, eLine - sLine + 1);
-                // 足りない行があれば埋める
+                // 配列外アクセスを防ぐためのパディング
                 while (lines.length < sIdx) lines.push("");
                 lines.splice(sIdx, deleteCount, ...newLines);
             } 
             else if (mode === 'insert_after') {
-                const targetIdx = eLine; // 指定行の後ろ
+                // start行目の「後ろ」に挿入 = indexとしては sIdx + 1
+                // 元のコードは eLine を使っていたが、LLMが end を省略すると NaN になるバグがあった
+                const targetIdx = sIdx + 1; 
                 while (lines.length < targetIdx) lines.push("");
                 lines.splice(targetIdx, 0, ...newLines);
             }
