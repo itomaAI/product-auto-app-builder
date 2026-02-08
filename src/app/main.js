@@ -299,6 +299,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const btnSend = document.getElementById(DOM.btnSend);
     if(btnSend) btnSend.addEventListener('click', handleSend);
+
+    const btnStop = document.getElementById(DOM.btnStop);
+    if(btnStop) btnStop.addEventListener('click', () => {
+        engine.stop(); // LLMの通信と自律ループを中断
+        ui.setProcessing(false); // UIを入力可能状態に戻す
+    });
     
     const chatInput = document.getElementById(DOM.chatInput);
     if(chatInput) chatInput.addEventListener('keydown', (e) => {

@@ -421,7 +421,14 @@
 			this.els.filePreviewArea.classList.add('hidden');
 		}
 		scrollToBottom() {
-			if (this.els.chatHistory) this.els.chatHistory.scrollTop = this.els.chatHistory.scrollHeight;
+            if (!this.els.chatHistory) return;
+            
+            const el = this.els.chatHistory;
+            const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 100;
+
+            if (isAtBottom) {
+                el.scrollTop = el.scrollHeight;
+            }
 		}
 		setProcessing(isProcessing) {
 			if (this.els.btnSend) this.els.btnSend.classList.toggle('hidden', isProcessing);

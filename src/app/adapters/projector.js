@@ -78,7 +78,9 @@
                         if (c.output && c.output.image) {
                             parts.push({
                                 inlineData: {
-                                    mimeType: 'image/png',
+                                    // 【修正後】ツールから渡された mimeType を優先し、なければ png にする
+                                    mimeType: c.output.mimeType || 'image/png',
+                                    
                                     data: c.output.image // Base64
                                 }
                             });
