@@ -200,7 +200,8 @@
 			div.innerHTML = `<div class="flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase">MODEL (Streaming...)</div><div class="msg-content whitespace-pre-wrap break-all font-mono"></div>`;
 
 			this.els.chatHistory.appendChild(div);
-			this.scrollToBottom();
+			// 【修正】開始時は強制的にスクロール
+			this.scrollToBottom(true);
 
 			this.currentStreamEl = div.querySelector('.msg-content');
 			this.currentStreamContent = "";
@@ -210,7 +211,8 @@
 			if (!this.currentStreamEl) return;
 			this.currentStreamContent += chunk;
 			this.currentStreamEl.textContent = this.currentStreamContent;
-			this.scrollToBottom();
+			// 【修正】ストリーミング中はスマートスクロール（force=false）
+			this.scrollToBottom(false);
 		}
 
 		finalizeStreaming() {
@@ -227,14 +229,16 @@
 
 			this.currentStreamEl = null;
 			this.currentStreamContent = "";
-			this.scrollToBottom();
+			// 【修正】完了時は高さが変わる可能性があるため強制スクロール
+			this.scrollToBottom(true);
 		}
 
 		renderHistory(history) {
 			if (!this.els.chatHistory) return;
 			this.els.chatHistory.innerHTML = '';
 			history.forEach(turn => this.appendTurn(turn));
-			this.scrollToBottom();
+			// 【修正】再描画完了時に強制スクロール
+			this.scrollToBottom(true);
 		}
 
 		appendTurn(turn) {
@@ -308,7 +312,8 @@
 
 			div.appendChild(body);
 			this.els.chatHistory.appendChild(div);
-			this.scrollToBottom();
+			// 【修正】要素追加時は強制スクロール
+			this.scrollToBottom(true);
 		}
 
 		// --- Helper: LPML Formatter ---
@@ -457,13 +462,15 @@
 			this.els.filePreviewArea.innerHTML = "";
 			this.els.filePreviewArea.classList.add('hidden');
 		}
-		scrollToBottom() {
+		scrollToBottom(force = false) {
 			if (!this.els.chatHistory) return;
 
 			const el = this.els.chatHistory;
-			const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 100;
+			// 許容誤差を少し広めに設定（スクロールバーの微細なズレ対策）
+			const threshold = 100;
+			const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + threshold;
 
-			if (isAtBottom) {
+			if (force || isAtBottom) {
 				el.scrollTop = el.scrollHeight;
 			}
 		}

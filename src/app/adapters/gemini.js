@@ -24,10 +24,8 @@
 		async generateStream(messages, onChunk, signal) {
 			const url = `${this.baseUrl}/${this.modelName}:streamGenerateContent?key=${this.apiKey}`;
 
-			// CONFIG依存またはデフォルト値
 			const generationConfig = (typeof CONFIG !== 'undefined' && CONFIG.GENERATION_CONFIG) ?
-				CONFIG.GENERATION_CONFIG :
-				{
+				CONFIG.GENERATION_CONFIG : {
 					temperature: 1.0,
 					maxOutputTokens: 65536
 				};
@@ -55,76 +53,82 @@
 			const decoder = new TextDecoder();
 			let buffer = "";
 
-			while (true) {
-				const {
-					done,
-					value
-				} = await reader.read();
-				if (done) break;
+			try {
+				while (true) {
+					const {
+						done,
+						value
+					} = await reader.read();
+					if (done) break;
 
-				const chunk = decoder.decode(value, {
-					stream: true
-				});
-				buffer += chunk;
+					const chunk = decoder.decode(value, {
+						stream: true
+					});
+					buffer += chunk;
 
-				// Robust JSON Stream Parser
-				// Gemini returns an array of JSON objects: [{...}, {...}, ...]
-				// We parse top-level objects by counting braces.
+					// --- Robust Text Extraction Logic ---
+					// JSON構造を真面目にパースするのではなく、"text" フィールドを
+					// 文字列として直接探しに行くことで、断片的なデータやパースエラーに強くする。
 
-				let braceCount = 0;
-				let inString = false;
-				let escaped = false;
-				let start = -1;
+					while (true) {
+						// 1. "text" キーを探す
+						const textKeyIdx = buffer.indexOf('"text"');
+						if (textKeyIdx === -1) break;
 
-				// Process buffer to extract full JSON objects
-				for (let i = 0; i < buffer.length; i++) {
-					const char = buffer[i];
-
-					if (inString) {
-						if (char === '\\') {
-							escaped = !escaped;
-						} else if (char === '"' && !escaped) {
-							inString = false;
-						} else {
-							escaped = false;
-						}
-						continue;
-					}
-
-					if (char === '"') {
-						inString = true;
-						continue;
-					}
-
-					if (char === '{') {
-						if (braceCount === 0) start = i;
-						braceCount++;
-					} else if (char === '}') {
-						braceCount--;
-						if (braceCount === 0 && start !== -1) {
-							// Found a complete JSON object
-							const jsonStr = buffer.substring(start, i + 1);
-							try {
-								const parsed = JSON.parse(jsonStr);
-								if (parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content && parsed.candidates[0].content.parts) {
-									const parts = parsed.candidates[0].content.parts;
-									for (const part of parts) {
-										if (part.text) {
-											onChunk(part.text);
-										}
-									}
-								}
-							} catch (e) {
-								console.warn("JSON Parse Warning:", e);
+						// 2. その後の値の開始クォートを探す
+						// "text" : "..." のような形式を想定
+						let startQuote = -1;
+						for (let i = textKeyIdx + 6; i < buffer.length; i++) {
+							if (buffer[i] === '"') {
+								startQuote = i;
+								break;
 							}
-
-							// Advance buffer
-							buffer = buffer.substring(i + 1);
-							i = -1; // Reset loop index to start of new buffer
-							start = -1;
 						}
+						if (startQuote === -1) break;
+
+						// 3. 終了クォートを探す（エスケープを考慮）
+						let endQuote = -1;
+						let escaped = false;
+						for (let i = startQuote + 1; i < buffer.length; i++) {
+							const char = buffer[i];
+							if (escaped) {
+								escaped = false;
+								continue;
+							}
+							if (char === '\\') {
+								escaped = true;
+								continue;
+							}
+							if (char === '"') {
+								endQuote = i;
+								break;
+							}
+						}
+
+						if (endQuote === -1) {
+							// まだデータが届ききっていないので待つ
+							break;
+						}
+
+						// 4. 文字列を抽出してデコード
+						const rawText = buffer.substring(startQuote + 1, endQuote);
+						try {
+							// JSON文字列としてパースすることで、\n や \" を正しく戻す
+							// 文字列だけをクォートで囲んでパースさせる
+							const text = JSON.parse(`"${rawText}"`);
+							if (text) onChunk(text);
+						} catch (e) {
+							console.warn("Stream Text Parse Error:", e);
+						}
+
+						// 5. 処理した部分までバッファを進める
+						buffer = buffer.substring(endQuote + 1);
 					}
 				}
+			} catch (e) {
+				if (e.name === 'AbortError') throw e;
+				console.error("Stream Reading Error:", e);
+				throw e;
 			}
 		}
 	}
