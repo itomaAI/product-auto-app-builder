@@ -57,34 +57,63 @@
                 const chunk = decoder.decode(value, { stream: true });
                 buffer += chunk;
 
-                while (true) {
-                    // JSONストリームのパース ( { "text": "..." } )
-                    const textIdx = buffer.indexOf('"text"');
-                    if (textIdx === -1) break;
+                // Robust JSON Stream Parser
+                // Gemini returns an array of JSON objects: [{...}, {...}, ...]
+                // We parse top-level objects by counting braces.
+                
+                let braceCount = 0;
+                let inString = false;
+                let escaped = false;
+                let start = -1;
 
-                    const startQuote = buffer.indexOf('"', textIdx + 6);
-                    if (startQuote === -1) break;
+                // Process buffer to extract full JSON objects
+                for (let i = 0; i < buffer.length; i++) {
+                    const char = buffer[i];
 
-                    let endQuote = -1;
-                    let escaped = false;
-                    for (let i = startQuote + 1; i < buffer.length; i++) {
-                        const char = buffer[i];
-                        if (escaped) { escaped = false; continue; }
-                        if (char === '\\') { escaped = true; continue; }
-                        if (char === '"') { endQuote = i; break; }
+                    if (inString) {
+                        if (char === '\\') {
+                            escaped = !escaped;
+                        } else if (char === '"' && !escaped) {
+                            inString = false;
+                        } else {
+                            escaped = false;
+                        }
+                        continue;
                     }
 
-                    if (endQuote === -1) break;
-
-                    const rawText = buffer.substring(startQuote + 1, endQuote);
-                    try {
-                        const text = JSON.parse(`"${rawText}"`);
-                        if (text) onChunk(text);
-                    } catch (e) {
-                        // ignore incomplete json
+                    if (char === '"') {
+                        inString = true;
+                        continue;
                     }
 
-                    buffer = buffer.substring(endQuote + 1);
+                    if (char === '{') {
+                        if (braceCount === 0) start = i;
+                        braceCount++;
+                    } else if (char === '}') {
+                        braceCount--;
+                        if (braceCount === 0 && start !== -1) {
+                            // Found a complete JSON object
+                            const jsonStr = buffer.substring(start, i + 1);
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                if (parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content && parsed.candidates[0].content.parts) {
+                                    const parts = parsed.candidates[0].content.parts;
+                                    for (const part of parts) {
+                                        if (part.text) {
+                                            onChunk(part.text);
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("JSON Parse Warning:", e);
+                            }
+
+                            // Advance buffer
+                            buffer = buffer.substring(i + 1);
+                            i = -1; // Reset loop index to start of new buffer
+                            start = -1;
+                        }
+                    }
                 }
             }
         }
