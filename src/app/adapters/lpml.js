@@ -159,7 +159,7 @@
 		}
 	}
 
-	class LPMLAdapter extends global.ALLA.ParserAdapter {
+	class LPMLAdapter extends global.REAL.ParserAdapter {
 		constructor() {
 			super();
 			// 中身をパースせずテキストとして扱うタグ

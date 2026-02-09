@@ -4,7 +4,7 @@
 	global.App = global.App || {};
 	global.App.Tools = global.App.Tools || {};
 
-	class ToolRegistry extends global.ALLA.ToolRegistry {
+	class ToolRegistry extends global.REAL.ToolRegistry {
 		constructor() {
 			super();
 			this.tools = new Map();
@@ -16,7 +16,7 @@
 		 * @param {Function} impl - (params, state) => Promise<{log, ui, ...}>
 		 * @param {string} signalType - デフォルトのシグナル (CONTINUE/HALT/TERMINATE)
 		 */
-		register(name, impl, signalType = global.ALLA.Signal.CONTINUE) {
+		register(name, impl, signalType = global.REAL.Signal.CONTINUE) {
 			this.tools.set(name, {
 				impl,
 				signalType
@@ -35,7 +35,7 @@
 					result: {
 						log: `Error: Unknown tool <${action.type}>`
 					},
-					signal: global.ALLA.Signal.CONTINUE
+					signal: global.REAL.Signal.CONTINUE
 				};
 			}
 
@@ -62,7 +62,7 @@
 						log: `Error executing <${action.type}>: ${err.message}`,
 						ui: `❌ Error: ${err.message}`
 					},
-					signal: global.ALLA.Signal.CONTINUE
+					signal: global.REAL.Signal.CONTINUE
 				};
 			}
 		}

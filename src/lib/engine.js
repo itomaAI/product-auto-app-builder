@@ -1,7 +1,7 @@
 // src/lib/engine.js
 
 (function(global) {
-	global.ALLA = global.ALLA || {};
+	global.REAL = global.REAL || {};
 
 	class Engine {
 		/**
@@ -44,11 +44,11 @@
 		 */
 		async injectUserTurn(inputContent) {
 			// 1. User Turn 追加
-			const turn = this.state.appendTurn(global.ALLA.Role.USER, inputContent, {
-				type: global.ALLA.TurnType.USER_INPUT
+			const turn = this.state.appendTurn(global.REAL.Role.USER, inputContent, {
+				type: global.REAL.TurnType.USER_INPUT
 			});
 			this._emit('turn_end', {
-				role: global.ALLA.Role.USER,
+				role: global.REAL.Role.USER,
 				turn
 			});
 
@@ -64,7 +64,7 @@
 			this.isRunning = true;
 			this.abortController = new AbortController();
 
-			const Signal = global.ALLA.Signal;
+			const Signal = global.REAL.Signal;
 			let currentSignal = Signal.CONTINUE;
 
 			try {
@@ -76,7 +76,7 @@
 
 					// 2. Generation (Prompt -> RawText)
 					this._emit('turn_start', {
-						role: global.ALLA.Role.MODEL
+						role: global.REAL.Role.MODEL
 					});
 
 					let rawResponse = "";
@@ -86,8 +86,8 @@
 					}, this.abortController.signal);
 
 					// History Update (LLM Output)
-					this.state.appendTurn(global.ALLA.Role.MODEL, rawResponse, {
-						type: global.ALLA.TurnType.MODEL_THOUGHT
+					this.state.appendTurn(global.REAL.Role.MODEL, rawResponse, {
+						type: global.REAL.TurnType.MODEL_THOUGHT
 					});
 
 					// 3. Interpretation (RawText -> Actions)
@@ -102,7 +102,7 @@
 
 					// 4. Execution (Actions -> Ω', Results, Signal)
 					this._emit('turn_start', {
-						role: global.ALLA.Role.SYSTEM
+						role: global.REAL.Role.SYSTEM
 					});
 
 					const results = [];
@@ -130,11 +130,11 @@
 					}
 
 					// History Update (System Output / Tool Logs)
-					this.state.appendTurn(global.ALLA.Role.SYSTEM, results, {
-						type: global.ALLA.TurnType.TOOL_EXECUTION
+					this.state.appendTurn(global.REAL.Role.SYSTEM, results, {
+						type: global.REAL.TurnType.TOOL_EXECUTION
 					});
 					this._emit('turn_end', {
-						role: global.ALLA.Role.SYSTEM,
+						role: global.REAL.Role.SYSTEM,
 						results
 					});
 
@@ -150,8 +150,8 @@
 					console.log('Loop aborted.');
 				} else {
 					console.error('Engine Error:', error);
-					this.state.appendTurn(global.ALLA.Role.SYSTEM, `System Error: ${error.message}`, {
-						type: global.ALLA.TurnType.ERROR
+					this.state.appendTurn(global.REAL.Role.SYSTEM, `System Error: ${error.message}`, {
+						type: global.REAL.TurnType.ERROR
 					});
 					this._emit('loop_stop', {
 						reason: 'error',
@@ -184,6 +184,6 @@
 		}
 	}
 
-	global.ALLA.Engine = Engine;
+	global.REAL.Engine = Engine;
 
 })(window);

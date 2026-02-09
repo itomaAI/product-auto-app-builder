@@ -5,7 +5,7 @@
 	global.App.World = global.App.World || {};
 
 	class StorageManager {
-		constructor(dbName = 'metaforge_alla_db', storeName = 'projects') {
+		constructor(dbName = 'metaforge_real_db', storeName = 'projects') {
 			this.dbName = dbName;
 			this.storeName = storeName;
 			this.db = null;

@@ -1,7 +1,7 @@
 // src/lib/interfaces.js
 
 (function(global) {
-	global.ALLA = global.ALLA || {};
+	global.REAL = global.REAL || {};
 
 	/**
 	 * Generator (G): LLMクライアント
@@ -59,9 +59,9 @@
 		}
 	}
 
-	global.ALLA.LLMAdapter = LLMAdapter;
-	global.ALLA.ParserAdapter = ParserAdapter;
-	global.ALLA.ToolRegistry = ToolRegistry;
-	global.ALLA.ContextProjector = ContextProjector;
+	global.REAL.LLMAdapter = LLMAdapter;
+	global.REAL.ParserAdapter = ParserAdapter;
+	global.REAL.ToolRegistry = ToolRegistry;
+	global.REAL.ContextProjector = ContextProjector;
 
 })(window);

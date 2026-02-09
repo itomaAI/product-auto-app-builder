@@ -58,7 +58,7 @@
 			this.explorer.on('history_event', (type, description) => {
 				const lpml = `<event type="${type}">\n${description}\n</event>`;
 				// 1. Update State
-				this.state.appendTurn(global.ALLA.Role.SYSTEM, lpml, {
+				this.state.appendTurn(global.REAL.Role.SYSTEM, lpml, {
 					type: 'event_log'
 				});
 				// 2. Update Chat UI immediately
@@ -70,7 +70,7 @@
 				this.vfs.writeFile(path, content);
 
 				const lpml = `<event type="file_change">\nUser edited file content: ${path}\n</event>`;
-				this.state.appendTurn(global.ALLA.Role.SYSTEM, lpml, {
+				this.state.appendTurn(global.REAL.Role.SYSTEM, lpml, {
 					type: 'event_log'
 				});
 				this.chat.renderHistory(this.state.getHistory());

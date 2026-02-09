@@ -4,7 +4,7 @@
 	global.App = global.App || {};
 	global.App.Adapters = global.App.Adapters || {};
 
-	class GeminiAdapter extends global.ALLA.LLMAdapter {
+	class GeminiAdapter extends global.REAL.LLMAdapter {
 		/**
 		 * @param {string} apiKey 
 		 * @param {string} modelName 

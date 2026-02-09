@@ -3,13 +3,13 @@
 document.addEventListener('DOMContentLoaded', async () => {
 	// Shortcuts
 	const {
-		ALLA,
+		REAL,
 		App
 	} = window;
 	const {
 		Engine,
 		WorldState
-	} = ALLA;
+	} = REAL;
 	const {
 		Config
 	} = App;
@@ -140,7 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	// Engine -> UI (Streaming)
 	engine.on('turn_start', (data) => {
-		if (data.role === ALLA.Role.MODEL) {
+		if (data.role === REAL.Role.MODEL) {
 			ui.chat.setProcessing(true);
 			ui.chat.startStreaming();
 		}
@@ -151,7 +151,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	});
 
 	engine.on('turn_end', (data) => {
-		if (data.role === ALLA.Role.MODEL) {
+		if (data.role === REAL.Role.MODEL) {
 			ui.chat.finalizeStreaming();
 		} else {
 			// System/User turns re-render
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 	// --- 9. Boot Sequence ---
-	console.log("MetaForge v2.1 (ALLA+DI) Booting...");
+	console.log("MetaForge v2.2 (REAL+DI) Booting...");
 	try {
 		const lastId = await storage.getLastProjectId();
 		if (lastId) {

@@ -4,10 +4,10 @@
 	global.App = global.App || {};
 	global.App.Adapters = global.App.Adapters || {};
 
-	const Role = global.ALLA.Role;
-	const TurnType = global.ALLA.TurnType;
+	const Role = global.REAL.Role;
+	const TurnType = global.REAL.TurnType;
 
-	class MetaForgeProjector extends global.ALLA.ContextProjector {
+	class MetaForgeProjector extends global.REAL.ContextProjector {
 		/**
 		 * @param {string} systemPrompt 
 		 */

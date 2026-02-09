@@ -1,7 +1,7 @@
 // src/lib/state.js
 
 (function(global) {
-	global.ALLA = global.ALLA || {};
+	global.REAL = global.REAL || {};
 
 	class WorldState {
 		/**
@@ -19,7 +19,7 @@
 
 		/**
 		 * 履歴にターンを追加する
-		 * @param {string} role - ALLA.Role.*
+		 * @param {string} role - REAL.Role.*
 		 * @param {Array|string} content - テキストまたは構造化コンテンツ
 		 * @param {Object} meta - UI用のメタデータ (例: { type: 'tool_log', visible: false })
 		 */
@@ -73,6 +73,6 @@
 		}
 	}
 
-	global.ALLA.WorldState = WorldState;
+	global.REAL.WorldState = WorldState;
 
 })(window);

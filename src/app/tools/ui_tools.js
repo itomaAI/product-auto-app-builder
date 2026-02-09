@@ -4,7 +4,7 @@
 	global.App = global.App || {};
 	global.App.Tools = global.App.Tools || {};
 
-	const Signal = global.ALLA.Signal;
+	const Signal = global.REAL.Signal;
 
 	global.App.Tools.registerUITools = function(registry, uiController) {
 

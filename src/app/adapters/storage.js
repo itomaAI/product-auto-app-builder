@@ -5,7 +5,7 @@
 	global.App.Adapters = global.App.Adapters || {};
 
 	class StorageAdapter {
-		constructor(dbName = 'metaforge_alla_db', storeName = 'projects') {
+		constructor(dbName = 'metaforge_real_db', storeName = 'projects') {
 			this.dbName = dbName;
 			this.storeName = storeName;
 			this.db = null;
@@ -75,7 +75,7 @@
 				name: name,
 				lastModified: Date.now(),
 				files: vfsData,
-				chatHistory: history // ALLAのhistory構造をそのまま保存
+				chatHistory: history // REALのhistory構造をそのまま保存
 			};
 
 			return new Promise((resolve, reject) => {
