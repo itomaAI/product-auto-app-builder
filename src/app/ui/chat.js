@@ -224,8 +224,14 @@
 						const p = document.createElement('div');
 						p.className = "mb-1";
 						const uiText = item.output.ui || item.output.log || "";
-						if (item.output.ui) p.innerHTML = `<span class="text-blue-300 font-bold">${uiText}</span>`;
-						else p.textContent = uiText;
+						if (item.output.ui) {
+                            const span = document.createElement('span');
+                            span.className = "text-blue-300 font-bold";
+                            span.textContent = uiText;
+                            p.appendChild(span);
+                        } else {
+                            p.textContent = uiText;
+                        }
 						body.appendChild(p);
 						if (item.output.image) this._appendImage(body, item.output.image);
 					} else if (item.inlineData) {
@@ -270,16 +276,10 @@
 				return div.innerHTML;
 			};
 
-			const ALLOWED_TAGS = [
-				'thinking', 'plan', 'report', 'ask', 'finish',
-				'create_file', 'edit_file', 'read_file', 'delete_file', 'move_file',
-				'list_files', 'preview', 'take_screenshot',
-				'tool_outputs', 'user_input', 'event'
-			].join('|');
-
+			const TAG_NAME_PATTERN = '[a-zA-Z0-9_\\-]+';
 			const TAG_REGEX = new RegExp(
-				`&lt;(${ALLOWED_TAGS})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
-				`&lt;(${ALLOWED_TAGS})([^&]*)\\/&gt;`,
+				`&lt;(${TAG_NAME_PATTERN})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
+				`&lt;(${TAG_NAME_PATTERN})([^&]*)\\/&gt;`,
 				'g'
 			);
 
@@ -329,7 +329,13 @@
 				const pathMatch = attributes.match(/path=["']?([^"'\s]+)["']?/);
 				title = `📝 ${tagName}: ${pathMatch ? pathMatch[1] : ''}`;
 				colorClass = "border-yellow-900 bg-yellow-900/20";
-			}
+            } else if (['read_file', 'list_files', 'delete_file', 'move_file', 'preview', 'take_screenshot'].includes(tagName)) {
+                title = `🔧 ${tagName}`;
+                colorClass = "border-gray-600 bg-gray-800";
+            } else {
+                title = `⚙️ ${tagName}`;
+                colorClass = "border-gray-600 bg-gray-700/50";
+            }
 
 			const openAttr = isOpen ? 'open' : '';
 			let displayContent = innerContent.trim();
