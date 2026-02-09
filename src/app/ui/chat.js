@@ -85,6 +85,8 @@
 			const resizer = this.els.chatResizer;
 			const panel = document.getElementById('chat-panel');
 			const iframe = this.els.previewFrame;
+			const overlay = document.getElementById(DOM.resizeOverlay);
+
 			if (!resizer || !panel) return;
 
 			let isResizing = false;
@@ -92,6 +94,8 @@
 				isResizing = true;
 				document.body.style.cursor = 'col-resize';
 				resizer.classList.add('resizing');
+
+				if (overlay) overlay.classList.remove('hidden');
 				if (iframe) iframe.style.pointerEvents = 'none';
 				e.preventDefault();
 			};
@@ -100,6 +104,8 @@
 				isResizing = false;
 				document.body.style.cursor = '';
 				resizer.classList.remove('resizing');
+
+				if (overlay) overlay.classList.add('hidden');
 				if (iframe) iframe.style.pointerEvents = '';
 			};
 			const move = (e) => {
@@ -197,8 +203,8 @@
 
 			const body = document.createElement('div');
 			// Model messages handle whitespace inside LPML formatter
-            const isFormatted = role === 'model' || (role === 'system' && typeof content === 'string' && content.includes('<event'));
-            body.className = isFormatted ? "break-all" : "whitespace-pre-wrap break-all";
+			const isFormatted = role === 'model' || (role === 'system' && typeof content === 'string' && content.includes('<event'));
+			body.className = isFormatted ? "break-all" : "whitespace-pre-wrap break-all";
 
 			if (typeof content === 'string') {
 				if (role === 'model' || (role === 'system' && content.includes('<event'))) {
@@ -331,7 +337,7 @@
 
 			if (!displayContent) return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block">&lt;${tagName}${attributes} /&gt;</div>`;
 
-            return `<details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group">
+			return `<details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group">
                 <summary class="cursor-pointer p-2 text-xs font-bold text-gray-300 bg-black/20 hover:bg-black/40 select-none flex items-center gap-2">
                     <span class="group-open:rotate-90 transition-transform">▶</span> ${title}
                 </summary>

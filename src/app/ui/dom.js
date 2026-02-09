@@ -57,7 +57,10 @@
 		btnCloseModal: 'btn-close-modal',
 		btnNewProject: 'btn-new-project',
 		btnNewProjectModal: 'btn-new-project-modal',
-		saveStatus: 'save-status'
+		saveStatus: 'save-status',
+
+        // Global
+        resizeOverlay: 'resize-overlay', // ★追加
 	};
 
 })(window);

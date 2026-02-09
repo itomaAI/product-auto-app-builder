@@ -172,53 +172,53 @@
 			}
 		}
 
-        _initResizer() {
-            if (!this.resizer || !this.sidebar) return;
-            
-            let isResizing = false;
-            
-            const start = (e) => {
-                isResizing = true;
-                document.body.style.cursor = 'col-resize';
-                this.resizer.classList.add('resizing');
-                
-                // 【修正】リサイズ中は iframe のイベントを無効化して吸い込みを防止
-                if (this.previewFrame) {
-                    this.previewFrame.style.pointerEvents = 'none';
-                }
+		_initResizer() {
+			if (!this.resizer || !this.sidebar) return;
 
-                e.preventDefault();
-            };
-            
-            const stop = () => {
-                if (!isResizing) return;
-                isResizing = false;
-                document.body.style.cursor = '';
-                this.resizer.classList.remove('resizing');
-                
-                // 【修正】リサイズ終了後に iframe を有効化
-                if (this.previewFrame) {
-                    this.previewFrame.style.pointerEvents = '';
-                }
-            };
-            
-            const move = (e) => {
-                if (!isResizing) return;
-                const newWidth = e.clientX;
-                // 幅制限 (min 150px, max 600px)
-                if (newWidth > 150 && newWidth < 600) {
-                    this.sidebar.style.width = `${newWidth}px`;
-                }
-            };
+			// オーバーレイ要素を取得
+			const overlay = document.getElementById(DOM.resizeOverlay);
 
-            this.resizer.addEventListener('mousedown', start);
-            document.addEventListener('mousemove', move);
-            document.addEventListener('mouseup', stop);
-            // マウスが画面外に出た場合の保険
-            document.addEventListener('mouseleave', stop);
-        }
-    }
+			let isResizing = false;
 
+			const start = (e) => {
+				isResizing = true;
+				// カーソル強制
+				document.body.style.cursor = 'col-resize';
+				this.resizer.classList.add('resizing');
+
+				// ★追加: 壁を表示してイベント吸い込み
+				if (overlay) overlay.classList.remove('hidden');
+				if (this.previewFrame) this.previewFrame.style.pointerEvents = 'none';
+
+				e.preventDefault();
+			};
+
+			const stop = () => {
+				if (!isResizing) return;
+				isResizing = false;
+				document.body.style.cursor = '';
+				this.resizer.classList.remove('resizing');
+
+				// ★追加: 壁を隠す
+				if (overlay) overlay.classList.add('hidden');
+
+				if (this.previewFrame) this.previewFrame.style.pointerEvents = '';
+			};
+
+			const move = (e) => {
+				if (!isResizing) return;
+				const newWidth = e.clientX;
+				if (newWidth > 150 && newWidth < 600) {
+					this.sidebar.style.width = `${newWidth}px`;
+				}
+			};
+
+			this.resizer.addEventListener('mousedown', start);
+			document.addEventListener('mousemove', move);
+			document.addEventListener('mouseup', stop);
+			document.addEventListener('mouseleave', stop);
+		}
+	}
 
 	global.App.UI.ExplorerComponent = ExplorerComponent;
 
