@@ -669,8 +669,6 @@ Use this after making changes to code to verify the result visually.
 <define_tag name="take_screenshot">
 Captures an image of the current preview.
 Attributes: None.
-Constraint:
-    - Should be used AFTER <preview> in the same or subsequent turn.
 </define_tag>
 `.trim();
 
