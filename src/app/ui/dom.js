@@ -24,6 +24,8 @@
 		filesUpload: 'files-upload',
 		contextUploadInput: 'context-upload-input',
 		btnDownload: 'btn-download',
+		btnOpenFolder: 'btn-open-folder',
+		projectOpenInput: 'project-open-input',
 		contextMenu: 'context-menu',
 
 		// Preview Area
@@ -51,7 +53,7 @@
 		projectName: 'current-project-name',
 		projectRenameInput: 'project-rename-input',
 		projectSelectTrigger: 'project-select-trigger',
-        btnRenameProject: 'btn-rename-project',
+		btnRenameProject: 'btn-rename-project',
 		projectModal: 'project-modal',
 		projectList: 'project-list',
 		btnCloseModal: 'btn-close-modal',
@@ -59,8 +61,8 @@
 		btnNewProjectModal: 'btn-new-project-modal',
 		saveStatus: 'save-status',
 
-        // Global
-        resizeOverlay: 'resize-overlay', // ★追加
+		// Global
+		resizeOverlay: 'resize-overlay', // ★追加
 	};
 
 })(window);

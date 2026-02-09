@@ -16,11 +16,20 @@
 			this.treeView = new TreeView(DOM.fileExplorer, DOM.contextMenu);
 			this.sidebar = document.getElementById(DOM.sidebar);
 			this.resizer = document.getElementById(DOM.explorerResizer);
+
+			// Upload Inputs
 			this.contextUploadInput = document.getElementById(DOM.contextUploadInput);
+			this.folderInput = document.getElementById(DOM.folderUpload);
+			this.filesInput = document.getElementById(DOM.filesUpload);
+
+			// New: Open Project Folder
+			this.btnOpenFolder = document.getElementById(DOM.btnOpenFolder);
+			this.projectOpenInput = document.getElementById(DOM.projectOpenInput);
+
 			this.previewFrame = document.getElementById(DOM.previewFrame);
 
 			if (!this.contextUploadInput) {
-				console.error(`ExplorerComponent: #${DOM.contextUploadInput} not found in DOM.`);
+				console.warn(`ExplorerComponent: #${DOM.contextUploadInput} not found.`);
 			}
 
 			this._bindVFS();
@@ -49,7 +58,7 @@
 
 			this.treeView.on('create_file', (path) => {
 				try {
-					const msg = this.vfs.writeFile(path, "");
+					this.vfs.writeFile(path, "");
 					this._emitHistoryEvent('file_created', `User created empty file: ${path}`);
 					if (this.events['open_file']) this.events['open_file'](path, "");
 				} catch (e) {
@@ -66,10 +75,8 @@
 				}
 			});
 
-			// 【追加】複製機能
 			this.treeView.on('duplicate', (path) => {
 				try {
-					// 自動命名ロジック (foo.js -> foo_copy.js, foo_copy1.js)
 					const dotIndex = path.lastIndexOf('.');
 					let base, ext;
 					if (dotIndex !== -1) {
@@ -117,25 +124,90 @@
 				if (this.contextUploadInput) {
 					this.contextUploadInput.value = "";
 					this.contextUploadInput.click();
-				} else {
-					alert("Upload input element not found.");
 				}
 			});
 		}
 
 		_bindUploads() {
-			const folderInput = document.getElementById(DOM.folderUpload);
-			if (folderInput) folderInput.onchange = (e) => this._handleUpload(e, true, "");
-			const filesInput = document.getElementById(DOM.filesUpload);
-			if (filesInput) filesInput.onchange = (e) => this._handleUpload(e, false, "");
+			// 1. Existing Upload Handlers (Append Mode)
+			if (this.folderInput) this.folderInput.onchange = (e) => this._handleUploadAppend(e, true, "");
+			if (this.filesInput) this.filesInput.onchange = (e) => this._handleUploadAppend(e, false, "");
 			if (this.contextUploadInput) {
 				this.contextUploadInput.onchange = (e) => {
-					this._handleUpload(e, false, this.currentContextUploadPath);
+					this._handleUploadAppend(e, false, this.currentContextUploadPath);
 					this.currentContextUploadPath = "";
 				};
 			}
+
+			// 2. New: Open Project Folder (Replace Mode)
+			if (this.btnOpenFolder && this.projectOpenInput) {
+				this.btnOpenFolder.onclick = () => {
+					this.projectOpenInput.value = "";
+					this.projectOpenInput.click();
+				};
+
+				this.projectOpenInput.onchange = async (e) => {
+					const files = Array.from(e.target.files);
+					if (files.length === 0) return;
+
+					// Confirm Clearing
+					if (!confirm(`Warning: This will DELETE all current files and replace them with the contents of "${files[0].webkitRelativePath.split('/')[0]}".\n\nContinue?`)) {
+						e.target.value = "";
+						return;
+					}
+
+					// 1. Clear VFS (Silent)
+					// 直接オブジェクトを空にする（notifyは後でまとめて行う）
+					Object.keys(this.vfs.files).forEach(k => delete this.vfs.files[k]);
+
+					// 2. Import Files (Batch)
+					const uploadedPaths = [];
+					for (const file of files) {
+						// ルートディレクトリ名の除去ロジック
+						// "MyProject/src/index.js" -> "src/index.js"
+						let relPath = file.webkitRelativePath;
+						const parts = relPath.split('/');
+						if (parts.length > 1) {
+							relPath = parts.slice(1).join('/');
+						} else {
+							relPath = file.name;
+						}
+
+						// 除外リスト
+						if (relPath.startsWith('.git/') || relPath.includes('/.git/') || relPath === '.DS_Store') continue;
+						if (!relPath) continue;
+
+						let content;
+						try {
+							if (this._isBinary(file)) {
+								content = await this._fileToBase64(file);
+							} else {
+								content = await file.text();
+							}
+
+							// 直接書き込み (Batch処理のため notify しない)
+							const normalizedPath = relPath.replace(/^\/+/, '');
+							this.vfs.files[normalizedPath] = content;
+							uploadedPaths.push(normalizedPath);
+
+						} catch (err) {
+							console.error(`Failed to import ${relPath}:`, err);
+						}
+					}
+
+					// 3. Notify & Update History
+					this.vfs.notify();
+
+					this._emitHistoryEvent('project_imported',
+						`User opened folder (cleared previous state). Imported ${uploadedPaths.length} files.`);
+
+					e.target.value = "";
+				};
+			}
 		}
-		async _handleUpload(e, isFolder, targetDir = "") {
+
+		// 既存のアップロード処理（追加モード）
+		async _handleUploadAppend(e, isFolder, targetDir = "") {
 			const files = Array.from(e.target.files);
 			const uploadedPaths = [];
 			for (const file of files) {
@@ -143,8 +215,9 @@
 				if (targetDir) relPath = `${targetDir}/${file.name}`;
 				else if (isFolder && file.webkitRelativePath) relPath = file.webkitRelativePath;
 				relPath = relPath.replace(/^\/+/, '');
+
 				let content;
-				if (file.type.startsWith('image/') || file.type === 'application/pdf') content = await this._fileToBase64(file);
+				if (this._isBinary(file)) content = await this._fileToBase64(file);
 				else content = await file.text();
 				try {
 					this.vfs.writeFile(relPath, content);
@@ -162,6 +235,13 @@
 			}
 			e.target.value = "";
 		}
+
+		_isBinary(file) {
+			return file.type.startsWith('image/') ||
+				file.type === 'application/pdf' ||
+				file.name.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|woff|woff2|ttf|eot)$/i);
+		}
+
 		_fileToBase64(file) {
 			return new Promise((r, j) => {
 				const reader = new FileReader();
@@ -170,11 +250,13 @@
 				reader.onerror = j;
 			});
 		}
+
 		_emitHistoryEvent(type, description) {
 			if (this.events['history_event']) {
-                this.events['history_event'](type, description);
+				this.events['history_event'](type, description);
 			}
 		}
+
 		_initResizer() {
 			if (!this.resizer || !this.sidebar) return;
 			const overlay = document.getElementById(DOM.resizeOverlay);
