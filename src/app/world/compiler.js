@@ -100,31 +100,34 @@
 		}
 
 		injectScreenshotHelper(html) {
-        const script = `
+			const script = `
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
 <script>
 window.addEventListener('message', async (e) => {
     if (e.data.action === 'CAPTURE') {
         try {
-            // ライブラリのロード待機 (html2canvas -> htmlToImage に変更)
+            // ライブラリのロード待機
             let attempts = 0;
             while (typeof htmlToImage === 'undefined' && attempts < 20) {
                 await new Promise(r => setTimeout(r, 100));
                 attempts++;
             }
             if (typeof htmlToImage === 'undefined') throw new Error('html-to-image failed to load');
-            
+
             // キャプチャ実行
-            // html2canvasと違い、直接DataURL(base64)が返ってくる
             const data = await htmlToImage.toPng(document.body, { 
                 backgroundColor: null,
-                // 画像読み込み待機などをスキップして高速化したい場合は skipFonts: true などを検討
+
+                // ▼▼▼ 追加: エラーが発生した要素をスキップして続行する ▼▼▼
+                skipOnError: true, 
             });
-            
+
             parent.postMessage({ type: 'SCREENSHOT_RESULT', data }, '*');
         } catch (err) {
             console.error('Screenshot failed:', err);
-            parent.postMessage({ type: 'SCREENSHOT_ERROR', message: err.message }, '*');
+            // エラーオブジェクトがEvent型の場合があるのでメッセージを安全に抽出
+            const msg = err.message || (err.type === 'error' ? 'Resource loading failed (check console)' : String(err));
+            parent.postMessage({ type: 'SCREENSHOT_ERROR', message: msg }, '*');
         }
     }
 });
