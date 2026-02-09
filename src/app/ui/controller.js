@@ -41,16 +41,18 @@
 			});
 		}
 
-		_wireComponents() {
-			// 1. Explorer -> Open File (Router)
-			this.explorer.on('open_file', (path, content) => {
-				// Check if image
-				if (path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
-					this.mediaViewer.open(path, content);
-				} else {
-					this.editor.open(path, content);
-				}
-			});
+        _wireComponents() {
+            // 1. Explorer -> Open File (Router with Exclusive Control)
+            this.explorer.on('open_file', (path, content) => {
+                // Check if image
+                if (path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
+                    this.editor.close(); // ★ テキストエディタが開いていれば閉じる
+                    this.mediaViewer.open(path, content);
+                } else {
+                    this.mediaViewer.close(); // ★ メディアビューアが開いていれば閉じる
+                    this.editor.open(path, content);
+                }
+            });
 
 			// 2. Explorer -> History Event (Immediate Update)
 			this.explorer.on('history_event', (type, description) => {

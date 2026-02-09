@@ -102,10 +102,7 @@
 		_showContextMenu(x, y, node) {
 			if (!this.contextMenu) return;
 
-			this.contextMenu.style.left = `${x}px`;
-			this.contextMenu.style.top = `${y}px`;
-			this.contextMenu.classList.remove('hidden');
-
+			// 1. メニュー項目を構築
 			this.contextMenu.innerHTML = '';
 			const actions = [];
 
@@ -128,6 +125,14 @@
 					separator: true
 				});
 			}
+
+			// Copy/Duplicate
+			actions.push({
+				label: 'Duplicate',
+				action: () => {
+					if (this.events['duplicate']) this.events['duplicate'](node.path);
+				}
+			});
 
 			actions.push({
 				label: 'Rename (Move)',
@@ -155,6 +160,28 @@
 				};
 				this.contextMenu.appendChild(btn);
 			});
+
+			// 2. 表示してサイズを取得（位置計算のため）
+			this.contextMenu.classList.remove('hidden');
+			const rect = this.contextMenu.getBoundingClientRect();
+			const winWidth = window.innerWidth;
+			const winHeight = window.innerHeight;
+
+			// 3. 画面からはみ出さないように補正
+			let posX = x;
+			let posY = y;
+
+			// 右にはみ出るなら左側に表示
+			if (posX + rect.width > winWidth) {
+				posX = winWidth - rect.width - 5;
+			}
+			// 下にはみ出るなら上側に表示
+			if (posY + rect.height > winHeight) {
+				posY = winHeight - rect.height - 5;
+			}
+
+			this.contextMenu.style.left = `${posX}px`;
+			this.contextMenu.style.top = `${posY}px`;
 		}
 
 		_initGlobalEvents() {
@@ -181,7 +208,6 @@
 			const name = prompt(`Enter new ${type} name:`);
 			if (!name) return;
 			let fullPath = parentPath ? `${parentPath}/${name}` : name;
-			// Remove leading slashes just in case
 			fullPath = fullPath.replace(/^\/+/, '');
 
 			if (type === 'folder' && this.events['create_folder']) {
@@ -194,11 +220,9 @@
 			}
 		}
 
-		// 【修正】フルパスで編集できるように変更（これにより移動が可能になる）
 		_promptRename(node) {
 			const newPath = prompt(`Edit path to rename/move:`, node.path);
 			if (!newPath || newPath === node.path) return;
-
 			if (this.events['rename']) this.events['rename'](node.path, newPath);
 		}
 

@@ -17,8 +17,8 @@
 			this.sidebar = document.getElementById(DOM.sidebar);
 			this.resizer = document.getElementById(DOM.explorerResizer);
 			this.contextUploadInput = document.getElementById(DOM.contextUploadInput);
+			this.previewFrame = document.getElementById(DOM.previewFrame);
 
-			// デバッグ: 要素が見つからない場合のアラート
 			if (!this.contextUploadInput) {
 				console.error(`ExplorerComponent: #${DOM.contextUploadInput} not found in DOM.`);
 			}
@@ -38,7 +38,6 @@
 				const treeData = this.vfs.getTree();
 				this.treeView.render(treeData);
 			});
-			// Initial
 			this.treeView.render(this.vfs.getTree());
 		}
 
@@ -67,9 +66,36 @@
 				}
 			});
 
+			// 【追加】複製機能
+			this.treeView.on('duplicate', (path) => {
+				try {
+					// 自動命名ロジック (foo.js -> foo_copy.js, foo_copy1.js)
+					const dotIndex = path.lastIndexOf('.');
+					let base, ext;
+					if (dotIndex !== -1) {
+						base = path.substring(0, dotIndex);
+						ext = path.substring(dotIndex);
+					} else {
+						base = path;
+						ext = "";
+					}
+
+					let newPath = `${base}_copy${ext}`;
+					let counter = 1;
+					while (this.vfs.exists(newPath)) {
+						newPath = `${base}_copy${counter}${ext}`;
+						counter++;
+					}
+
+					const msg = this.vfs.copyFile(path, newPath);
+					this._emitHistoryEvent('file_created', `User duplicated file: ${msg}`);
+				} catch (e) {
+					alert(e.message);
+				}
+			});
+
 			this.treeView.on('rename', (oldPath, newPath) => {
 				try {
-					// VFS.rename が成功するとメッセージを返す
 					const msg = this.vfs.rename(oldPath, newPath);
 					this._emitHistoryEvent('file_moved', `User action: ${msg}`);
 				} catch (e) {
@@ -86,11 +112,10 @@
 				}
 			});
 
-			// Context Menu Upload Request
 			this.treeView.on('upload_request', (path) => {
 				this.currentContextUploadPath = path;
 				if (this.contextUploadInput) {
-					this.contextUploadInput.value = ""; // Reset to allow same file selection
+					this.contextUploadInput.value = "";
 					this.contextUploadInput.click();
 				} else {
 					alert("Upload input element not found.");
@@ -99,46 +124,28 @@
 		}
 
 		_bindUploads() {
-			// General Uploads
 			const folderInput = document.getElementById(DOM.folderUpload);
 			if (folderInput) folderInput.onchange = (e) => this._handleUpload(e, true, "");
-
 			const filesInput = document.getElementById(DOM.filesUpload);
 			if (filesInput) filesInput.onchange = (e) => this._handleUpload(e, false, "");
-
-			// Context Menu Upload
 			if (this.contextUploadInput) {
 				this.contextUploadInput.onchange = (e) => {
 					this._handleUpload(e, false, this.currentContextUploadPath);
-					// Reset path after upload
 					this.currentContextUploadPath = "";
 				};
 			}
 		}
-
 		async _handleUpload(e, isFolder, targetDir = "") {
 			const files = Array.from(e.target.files);
 			const uploadedPaths = [];
-
 			for (const file of files) {
 				let relPath = file.name;
-
-				if (targetDir) {
-					relPath = `${targetDir}/${file.name}`;
-				} else if (isFolder && file.webkitRelativePath) {
-					relPath = file.webkitRelativePath;
-				}
-
-				// Remove leading slashes
+				if (targetDir) relPath = `${targetDir}/${file.name}`;
+				else if (isFolder && file.webkitRelativePath) relPath = file.webkitRelativePath;
 				relPath = relPath.replace(/^\/+/, '');
-
 				let content;
-				if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-					content = await this._fileToBase64(file);
-				} else {
-					content = await file.text();
-				}
-
+				if (file.type.startsWith('image/') || file.type === 'application/pdf') content = await this._fileToBase64(file);
+				else content = await file.text();
 				try {
 					this.vfs.writeFile(relPath, content);
 					uploadedPaths.push(relPath);
@@ -146,7 +153,6 @@
 					console.error(err);
 				}
 			}
-
 			if (uploadedPaths.length > 0) {
 				const limit = 5;
 				const fileList = uploadedPaths.slice(0, limit).join(', ');
@@ -156,7 +162,6 @@
 			}
 			e.target.value = "";
 		}
-
 		_fileToBase64(file) {
 			return new Promise((r, j) => {
 				const reader = new FileReader();
@@ -165,46 +170,31 @@
 				reader.onerror = j;
 			});
 		}
-
 		_emitHistoryEvent(type, description) {
 			if (this.events['history_event']) {
-				this.events['history_event'](type, description);
+                this.events['history_event'](type, description);
 			}
 		}
-
 		_initResizer() {
 			if (!this.resizer || !this.sidebar) return;
-
-			// オーバーレイ要素を取得
 			const overlay = document.getElementById(DOM.resizeOverlay);
-
 			let isResizing = false;
-
 			const start = (e) => {
 				isResizing = true;
-				// カーソル強制
 				document.body.style.cursor = 'col-resize';
 				this.resizer.classList.add('resizing');
-
-				// ★追加: 壁を表示してイベント吸い込み
 				if (overlay) overlay.classList.remove('hidden');
 				if (this.previewFrame) this.previewFrame.style.pointerEvents = 'none';
-
 				e.preventDefault();
 			};
-
 			const stop = () => {
 				if (!isResizing) return;
 				isResizing = false;
 				document.body.style.cursor = '';
 				this.resizer.classList.remove('resizing');
-
-				// ★追加: 壁を隠す
 				if (overlay) overlay.classList.add('hidden');
-
 				if (this.previewFrame) this.previewFrame.style.pointerEvents = '';
 			};
-
 			const move = (e) => {
 				if (!isResizing) return;
 				const newWidth = e.clientX;
@@ -212,7 +202,6 @@
 					this.sidebar.style.width = `${newWidth}px`;
 				}
 			};
-
 			this.resizer.addEventListener('mousedown', start);
 			document.addEventListener('mousemove', move);
 			document.addEventListener('mouseup', stop);
