@@ -31,39 +31,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 		StorageAdapter
 	} = App.Adapters;
 
-	// --- 1. Initialize Adapters & Infrastructure ---
+	// --- 1. Initialize Infrastructure ---
 	const storage = new StorageAdapter();
+	const compiler = new Compiler();
 	const parser = new LPMLAdapter();
 	const projector = new MetaForgeProjector(Config.SYSTEM_PROMPT);
-	const compiler = new Compiler();
 
-	// --- 2. Initialize Logic Components (Empty state initially) ---
+	// --- 2. Initialize Model (Domain) ---
+	// Start with empty, will be populated by loadProject
 	const vfs = new VirtualFileSystem({});
 	const state = new WorldState(vfs);
-	const registry = new Registry();
-	const ui = new UIController(compiler);
 
-	// Register Tools
+	// --- 3. Initialize UI (View & Controllers) ---
+	// Inject VFS and State here. UI components can now bind to them directly.
+	const ui = new UIController(vfs, state, compiler);
+
+	// --- 4. Initialize Tools ---
+	const registry = new Registry();
 	App.Tools.registerFSTools(registry, vfs);
 	App.Tools.registerNavTools(registry, vfs);
 	App.Tools.registerUITools(registry, ui);
 
+	// --- 5. Initialize Engine (Logic) ---
 	// LLM Init
 	let apiKey = localStorage.getItem('metaforge_api_key') || '';
-	if (apiKey && document.getElementById(DOM.apiKey)) document.getElementById(DOM.apiKey).value = apiKey;
-
-	// Set Model Status from Config
-	if (DOM.modelStatus && document.getElementById(DOM.modelStatus)) {
+	if (apiKey && document.getElementById(DOM.apiKey)) {
+		document.getElementById(DOM.apiKey).value = apiKey;
+	}
+	if (document.getElementById(DOM.modelStatus)) {
 		document.getElementById(DOM.modelStatus).innerText = Config.MODEL_NAME;
 	}
 
 	const createLLM = () => new GeminiAdapter(apiKey, Config.MODEL_NAME);
-	let llm = createLLM();
+	const engine = new Engine(state, projector, createLLM(), parser, registry);
 
-	const engine = new Engine(state, projector, llm, parser, registry);
 
-	// --- 3. Helpers ---
-
+	// --- 6. Helper Functions ---
 	const fileToBase64 = (file) => {
 		return new Promise((r, j) => {
 			const reader = new FileReader();
@@ -73,8 +76,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 		});
 	};
 
-	// --- 4. Project Management Logic ---
 
+	// --- 7. Project Management Logic ---
 	let currentProjectId = null;
 	let currentProjectName = "Untitled";
 	let saveDebounceTimer = null;
@@ -84,18 +87,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 		currentProjectName = project.name;
 
 		// VFS Restore
-		vfs.files = {
-			...project.files
-		}; // Reset files
+		// Replace content of existing VFS instance so bindings remain valid
+		// Clear existing
+		Object.keys(vfs.files).forEach(k => delete vfs.files[k]);
+		// Set new
+		Object.assign(vfs.files, project.files);
 		vfs.notify();
 
 		// History Restore
-		// Engineが参照するstate.historyを置換
+		// Replace history in state
 		state.history = project.chatHistory || [];
 
 		// UI Update
-		ui.renderHistory(state.getHistory());
-		ui.refreshPreview(vfs);
+		ui.chat.renderHistory(state.getHistory());
+		ui.refreshPreview();
 		ui.updateProjectName(currentProjectName);
 	};
 
@@ -130,63 +135,53 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}, 1000);
 	};
 
-	// --- 5. Event Bindings (Wiring) ---
 
-	// Engine Events
+	// --- 8. Event Wiring ---
+
+	// Engine -> UI (Streaming)
 	engine.on('turn_start', (data) => {
 		if (data.role === ALLA.Role.MODEL) {
-			ui.setProcessing(true);
-			// ★ストリーミング開始
-			ui.startStreaming();
+			ui.chat.setProcessing(true);
+			ui.chat.startStreaming();
 		}
 	});
 
-	// ★ストリーミング更新
 	engine.on('stream_chunk', (chunk) => {
-		ui.updateStreaming(chunk);
+		ui.chat.updateStreaming(chunk);
 	});
 
 	engine.on('turn_end', (data) => {
-		// ★Modelターンの終了時のみストリーミング完了処理を行う
 		if (data.role === ALLA.Role.MODEL) {
-			ui.finalizeStreaming();
+			ui.chat.finalizeStreaming();
 		} else {
-			// SystemやUserの場合は普通に描画更新
-			ui.renderHistory(state.getHistory());
+			// System/User turns re-render
+			ui.chat.renderHistory(state.getHistory());
 		}
 		triggerAutoSave();
 	});
 
 	engine.on('loop_stop', (data) => {
-		// 強制終了やエラー時もストリーミングを閉じる
-		if (ui.currentStreamEl) ui.finalizeStreaming();
-
-		ui.setProcessing(false);
-		// 全体整合性のためリロード
-		ui.renderHistory(state.getHistory());
+		if (ui.chat.currentStreamEl) ui.chat.finalizeStreaming();
+		ui.chat.setProcessing(false);
+		ui.chat.renderHistory(state.getHistory());
 		triggerAutoSave();
-
 		if (data.reason === 'error') alert('Engine Error. See console.');
 	});
 
-
-	// VFS Events
-	vfs.subscribe((files) => {
-		ui.renderFileList(Object.keys(files).sort());
+	// VFS -> AutoSave
+	vfs.subscribe(() => {
 		triggerAutoSave();
 	});
 
-	// UI: Project Events
+	// UI -> Project Operations
 	document.addEventListener('project-rename', (e) => {
 		currentProjectName = e.detail;
 		triggerAutoSave();
 	});
-
 	document.addEventListener('request-project-list', async () => {
 		const projects = await storage.getAllProjectsMetadata();
 		ui.renderProjectList(projects);
 	});
-
 	document.addEventListener('project-select', async (e) => {
 		const id = e.detail;
 		if (id === currentProjectId) return;
@@ -196,127 +191,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 			await storage.setLastProjectId(id);
 		}
 	});
-
 	document.addEventListener('project-delete', async (e) => {
 		const id = e.detail;
 		await storage.deleteProject(id);
-		// Refresh list
 		const projects = await storage.getAllProjectsMetadata();
 		ui.renderProjectList(projects);
-
-		// If deleted current, create new
-		if (id === currentProjectId) {
-			await createNewProject();
-		}
+		if (id === currentProjectId) await createNewProject();
 	});
 
-	// Button: New Project (Sidebar & Modal)
+	// New Project Button
 	const btnNew = document.getElementById(DOM.btnNewProject);
-	if (btnNew) btnNew.addEventListener('click', async () => {
+	if (btnNew) btnNew.onclick = async () => {
 		if (confirm("Create new project?")) await createNewProject();
-	});
+	};
 	const btnNewModal = document.getElementById(DOM.btnNewProjectModal);
-	if (btnNewModal) btnNewModal.addEventListener('click', async () => {
+	if (btnNewModal) btnNewModal.onclick = async () => {
 		await createNewProject();
 		ui.toggleProjectModal(false);
-	});
-
-	// UI: File Operations
-	// Download ZIP
-	const btnDownload = document.getElementById(DOM.btnDownload);
-	if (btnDownload) btnDownload.addEventListener('click', async () => {
-		if (typeof JSZip === 'undefined') {
-			alert('JSZip not loaded');
-			return;
-		}
-		const zip = new JSZip();
-		const files = vfs.listFiles();
-		files.forEach(path => {
-			if (!path.startsWith('.sample/')) {
-				let content = vfs.readFile(path);
-				// 画像データ(Base64 URI)の場合の対応
-				if (content.startsWith('data:')) {
-					const base64 = content.split(',')[1];
-					zip.file(path, base64, {
-						base64: true
-					});
-				} else {
-					zip.file(path, content);
-				}
-			}
-		});
-		const blob = await zip.generateAsync({
-			type: 'blob'
-		});
-		const a = document.createElement('a');
-		a.href = URL.createObjectURL(blob);
-		a.download = `${currentProjectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`;
-		a.click();
-	});
-
-	// Upload Handlers
-	const handleFileUpload = async (e, isFolder) => {
-		const files = Array.from(e.target.files);
-		for (const file of files) {
-			let relPath = file.name;
-			if (isFolder && file.webkitRelativePath) {
-				relPath = file.webkitRelativePath.split('/').slice(1).join('/');
-			}
-			if (!relPath) continue;
-
-			if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-				const dataUrl = await fileToBase64(file);
-				vfs.writeFile(relPath, dataUrl);
-			} else {
-				const text = await file.text();
-				vfs.writeFile(relPath, text);
-			}
-		}
-		e.target.value = ""; // Reset
 	};
 
-	if (document.getElementById(DOM.folderUpload)) {
-		document.getElementById(DOM.folderUpload).addEventListener('change', (e) => handleFileUpload(e, true));
-	}
-	if (document.getElementById(DOM.filesUpload)) {
-		document.getElementById(DOM.filesUpload).addEventListener('change', (e) => handleFileUpload(e, false));
-	}
+	// Chat UI -> Engine
+	ui.chat.on('send', async (text, files) => {
+		ui.chat.setProcessing(true);
 
-	// Chat Clear
-	const btnClear = document.getElementById(DOM.btnClear);
-	if (btnClear) btnClear.addEventListener('click', () => {
-		if (confirm("Clear chat history?")) {
-			state.history = []; // Clear ALLA history
-			ui.renderHistory([]);
-			triggerAutoSave();
-		}
-	});
-
-	// Chat Send
-	const handleSend = async () => {
-		const inputEl = document.getElementById(DOM.chatInput);
-		const text = inputEl.value.trim();
-		const pendingFiles = ui.pendingUploads;
-
-		if (!text && pendingFiles.length === 0) return;
-		if (!apiKey) {
-			alert('Please set API Key');
-			return;
-		}
-
-		inputEl.value = '';
-		ui.clearUploadPreviews();
-		ui.pendingUploads = [];
-		ui.setProcessing(true);
-
-		// Build Content for ALLA
 		const content = [];
 		if (text) content.push({
 			text
 		});
 
-		// Process attachments
-		for (const file of pendingFiles) {
+		for (const file of files) {
 			if (file.type.startsWith('text/') || file.name.match(/\.(js|py|html|json|css|md|txt)$/)) {
 				const textContent = await file.text();
 				content.push({
@@ -334,61 +237,74 @@ document.addEventListener('DOMContentLoaded', async () => {
 			}
 		}
 
-		// Refresh LLM with latest key
-		engine.llm = createLLM();
+		engine.llm = createLLM(); // Refresh Key
 
 		try {
 			await engine.injectUserTurn(content);
 		} catch (e) {
 			console.error(e);
-			ui.setProcessing(false);
+			ui.chat.setProcessing(false);
 			alert("Error: " + e.message);
 		}
+	});
+
+	ui.chat.on('stop', () => {
+		engine.stop();
+		ui.chat.setProcessing(false);
+	});
+
+	ui.chat.on('clear', () => {
+		if (confirm("Clear chat history?")) {
+			state.history = [];
+			ui.chat.renderHistory([]);
+			triggerAutoSave();
+		}
+	});
+
+	// Download ZIP
+	const btnDownload = document.getElementById(DOM.btnDownload);
+	if (btnDownload) btnDownload.onclick = async () => {
+		if (typeof JSZip === 'undefined') {
+			alert('JSZip not loaded');
+			return;
+		}
+		const zip = new JSZip();
+		vfs.listFiles().forEach(path => {
+			if (!path.startsWith('.sample/')) {
+				const content = vfs.readFile(path);
+				if (content.startsWith('data:')) {
+					zip.file(path, content.split(',')[1], {
+						base64: true
+					});
+				} else {
+					zip.file(path, content);
+				}
+			}
+		});
+		const blob = await zip.generateAsync({
+			type: 'blob'
+		});
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = `${currentProjectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`;
+		a.click();
 	};
-
-	const btnSend = document.getElementById(DOM.btnSend);
-	if (btnSend) btnSend.addEventListener('click', handleSend);
-
-	const btnStop = document.getElementById(DOM.btnStop);
-	if (btnStop) btnStop.addEventListener('click', () => {
-		engine.stop(); // LLMの通信と自律ループを中断
-		ui.setProcessing(false); // UIを入力可能状態に戻す
-	});
-
-	const chatInput = document.getElementById(DOM.chatInput);
-	if (chatInput) chatInput.addEventListener('keydown', (e) => {
-		if (e.ctrlKey && e.key === 'Enter') handleSend();
-	});
 
 	// API Key Save
 	const btnSaveKey = document.getElementById(DOM.btnSaveKey);
-	if (btnSaveKey) btnSaveKey.addEventListener('click', () => {
+	if (btnSaveKey) btnSaveKey.onclick = () => {
 		apiKey = document.getElementById(DOM.apiKey).value.trim();
 		localStorage.setItem('metaforge_api_key', apiKey);
 		alert('API Key Saved');
-	});
+	};
 
-	// UI: Preview Refresh (ここを追加)
+	// Manual Refresh
 	const btnRefresh = document.getElementById(DOM.btnRefresh);
-	if (btnRefresh) btnRefresh.addEventListener('click', () => {
-		// VFSの最新状態を使って再コンパイル・再描画
-		ui.refreshPreview(vfs);
-	});
+	if (btnRefresh) btnRefresh.onclick = () => ui.refreshPreview();
 
-	// Editor & File Open
-	document.getElementById(DOM.fileList).addEventListener('file-open', (e) => {
-		const path = e.detail;
-		const content = vfs.readFile(path);
-		// DataURLの場合（画像など）の処理
-		if (content.startsWith('data:')) {
-			alert("Binary/Image file cannot be edited in text editor.");
-		} else {
-			ui.openEditor(path, content);
-		}
-	});
 
-	// --- 6. Boot Sequence ---
-	console.log("MetaForge v2 (ALLA) Booting...");
+	// --- 9. Boot Sequence ---
+	console.log("MetaForge v2.1 (ALLA+DI) Booting...");
 	try {
 		const lastId = await storage.getLastProjectId();
 		if (lastId) {
@@ -404,10 +320,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 	} catch (e) {
 		console.error("Boot Error:", e);
 		// Fallback
-		vfs.files = {
-			...Config.DEFAULT_FILES
-		};
-		ui.renderFileList(Object.keys(vfs.files));
-		ui.refreshPreview(vfs);
+		Object.assign(vfs.files, Config.DEFAULT_FILES);
+		vfs.notify();
+		ui.refreshPreview();
 	}
 });

@@ -17,32 +17,41 @@
 		chatResizer: 'chat-resizer',
 
 		// File Explorer
-		fileList: 'file-list',
+		sidebar: 'sidebar',
+		fileExplorer: 'file-explorer',
+		explorerResizer: 'explorer-resizer',
 		folderUpload: 'folder-upload',
 		filesUpload: 'files-upload',
+		contextUploadInput: 'context-upload-input',
 		btnDownload: 'btn-download',
+		contextMenu: 'context-menu',
 
 		// Preview Area
 		previewFrame: 'preview-frame',
 		previewLoader: 'preview-loader',
 		btnRefresh: 'btn-refresh',
-		urlBar: 'url-bar-text', // New: URL表示用
 
 		// Code Editor
 		editorOverlay: 'editor-overlay',
 		codeEditor: 'code-editor',
 		editorFilename: 'editor-filename',
 		btnCloseEditor: 'btn-close-editor',
+		btnSaveEditor: 'btn-save-editor',
 
-		// Header / Settings
+		// Media Viewer (NEW)
+		mediaOverlay: 'media-overlay',
+		mediaImage: 'media-image',
+		btnCloseMedia: 'btn-close-media',
+		mediaFilename: 'media-filename',
+
+		// Header / Project
 		apiKey: 'api-key',
 		btnSaveKey: 'btn-save-key',
-		modelStatus: 'model-status', // New: 現在のモデル表示
-
-		// Project Management
+		modelStatus: 'model-status',
 		projectName: 'current-project-name',
 		projectRenameInput: 'project-rename-input',
 		projectSelectTrigger: 'project-select-trigger',
+        btnRenameProject: 'btn-rename-project',
 		projectModal: 'project-modal',
 		projectList: 'project-list',
 		btnCloseModal: 'btn-close-modal',

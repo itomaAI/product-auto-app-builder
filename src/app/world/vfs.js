@@ -21,141 +21,248 @@
 			this.listeners.forEach(cb => cb(this.files));
 		}
 
+		// --- Helper: Normalize Path ---
+		// 先頭のスラッシュを削除し、統一的なパス形式にする
+		_norm(path) {
+			if (!path) return "";
+			return path.replace(/^\/+/, '');
+		}
+
 		exists(path) {
-			return Object.prototype.hasOwnProperty.call(this.files, path);
+			return Object.prototype.hasOwnProperty.call(this.files, this._norm(path));
+		}
+
+		isDirectory(path) {
+			let p = this._norm(path);
+			if (!p) return true; // root is dir
+			if (!p.endsWith('/')) p += '/';
+			return Object.keys(this.files).some(key => key.startsWith(p));
 		}
 
 		readFile(path) {
-			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
-			return this.files[path];
-		}
-
-		readLines(path, startLine = 1, endLine = 999999) {
-			const content = this.readFile(path);
-			const lines = content.split(/\r?\n/);
-			const s = Math.max(0, parseInt(startLine) - 1);
-			const e = Math.min(lines.length, parseInt(endLine));
-			return lines.slice(s, e);
+			const p = this._norm(path);
+			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
+			return this.files[p];
 		}
 
 		writeFile(path, content) {
-			this.files[path] = content;
+			let p = this._norm(path);
+			if (!p) throw new Error("Cannot write to root path.");
+			if (p.includes('..')) throw new Error("Invalid path: '..' is not allowed");
+
+			const exists = this.exists(p);
+			this.files[p] = content;
 			this.notify();
-			return `Wrote ${content.length} chars to ${path}`;
+			return exists ?
+				`Overwrote ${p} (${content.length} chars)` :
+				`Created ${p} (${content.length} chars)`;
+		}
+
+		createDirectory(path) {
+			let p = this._norm(path);
+			if (p.endsWith('/')) p = p.slice(0, -1);
+			if (!p) return "Root directory always exists.";
+
+			const keepFile = `${p}/.keep`;
+			if (!this.exists(keepFile)) {
+				this.files[keepFile] = "";
+				this.notify();
+				return `Created directory: ${p}`;
+			}
+			return `Directory already exists: ${p}`;
 		}
 
 		deleteFile(path) {
-			if (this.exists(path)) {
-				delete this.files[path];
+			const p = this._norm(path);
+			if (this.exists(p)) {
+				delete this.files[p];
 				this.notify();
-				return `Deleted ${path}`;
+				return `Deleted file: ${p}`;
 			}
-			return `File ${path} did not exist.`;
+			// ディレクトリ削除の試行
+			return this.deleteDirectory(p);
 		}
 
-		moveFile(oldPath, newPath) {
-			if (!this.exists(oldPath)) throw new Error(`Source ${oldPath} not found.`);
-			if (this.exists(newPath)) throw new Error(`Destination ${newPath} already exists.`);
+		deleteDirectory(path) {
+			let p = this._norm(path);
+			if (!p.endsWith('/')) p += '/';
 
-			this.files[newPath] = this.files[oldPath];
-			delete this.files[oldPath];
+			const keysToDelete = Object.keys(this.files).filter(k => k.startsWith(p));
+			if (keysToDelete.length === 0) {
+				return `Path ${p} not found or empty.`;
+			}
+
+			keysToDelete.forEach(k => delete this.files[k]);
 			this.notify();
-			return `Moved ${oldPath} to ${newPath}`;
+			return `Deleted directory ${p} (removed ${keysToDelete.length} files).`;
+		}
+
+		rename(oldPath, newPath) {
+			const oldP = this._norm(oldPath);
+			const newP = this._norm(newPath);
+
+			// 1. File Rename
+			if (this.exists(oldP)) {
+				if (this.exists(newP)) throw new Error(`Destination ${newP} already exists.`);
+				this.files[newP] = this.files[oldP];
+				delete this.files[oldP];
+				this.notify();
+				return `Renamed file: ${oldP} -> ${newP}`;
+			}
+
+			// 2. Directory Rename
+			let oldDir = oldP.endsWith('/') ? oldP : oldP + '/';
+			let newDir = newP.endsWith('/') ? newP : newP + '/';
+
+			const targets = Object.keys(this.files).filter(k => k.startsWith(oldDir));
+			if (targets.length > 0) {
+				const conflict = targets.some(k => this.exists(k.replace(oldDir, newDir)));
+				if (conflict) throw new Error(`Destination directory ${newP} conflicts with existing files.`);
+
+				targets.forEach(k => {
+					const dest = k.replace(oldDir, newDir);
+					this.files[dest] = this.files[k];
+					delete this.files[k];
+				});
+				this.notify();
+				return `Moved directory: ${oldP} -> ${newP} (${targets.length} files moved).`;
+			}
+
+			throw new Error(`Source path ${oldP} not found.`);
 		}
 
 		copyFile(srcPath, destPath) {
-			if (!this.exists(srcPath)) throw new Error(`Source ${srcPath} not found.`);
-			if (this.exists(destPath)) throw new Error(`Destination ${destPath} already exists.`);
-
-			this.files[destPath] = this.files[srcPath];
+			const src = this._norm(srcPath);
+			const dest = this._norm(destPath);
+			if (!this.exists(src)) throw new Error(`Source ${src} not found.`);
+			if (this.exists(dest)) throw new Error(`Destination ${dest} already exists.`);
+			this.files[dest] = this.files[src];
 			this.notify();
-			return `Copied ${srcPath} to ${destPath}`;
+			return `Copied: ${src} -> ${dest}`;
 		}
 
 		listFiles() {
 			return Object.keys(this.files).sort();
 		}
 
-		/**
-		 * 正規表現による置換 (New)
-		 * @param {string} path 
-		 * @param {string} patternStr - 正規表現パターン文字列
-		 * @param {string} replacement - 置換後の文字列
-		 */
+		getTree() {
+			const root = {
+				name: "root",
+				path: "",
+				type: "folder",
+				children: {}
+			};
+
+			Object.keys(this.files).sort().forEach(filePath => {
+				const parts = filePath.split('/');
+				let current = root;
+
+				parts.forEach((part, index) => {
+					const isLast = index === parts.length - 1;
+					const fullPath = parts.slice(0, index + 1).join('/');
+
+					if (!current.children[part]) {
+						current.children[part] = {
+							name: part,
+							path: fullPath,
+							type: isLast ? "file" : "folder",
+							children: {}
+						};
+					}
+					current = current.children[part];
+
+					if (!isLast && current.type === "file") {
+						current.type = "folder";
+					}
+				});
+			});
+
+			const toArray = (node) => {
+				const children = Object.values(node.children).map(child => toArray(child));
+				children.sort((a, b) => {
+					if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+					return a.name.localeCompare(b.name);
+				});
+				return {
+					name: node.name,
+					path: node.path,
+					type: node.type,
+					children: children
+				};
+			};
+			return toArray(root).children;
+		}
+
+		// --- Editing ---
+
 		replaceContent(path, patternStr, replacement) {
-			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
+			const p = this._norm(path);
+			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
 
-			const content = this.files[path];
-
-			// フラグ 'm' (multiline) は必須。's' (dotAll) はブラウザ依存があるため、
-			// 改行マッチには [\s\S] を使うようプロンプトで促す方が無難だが、
-			// 最近のブラウザなら 's' も使えることが多い。一旦 'gm' とする。
-			// 'g' (global) をつけるかどうかは議論の余地があるが、
-			// コード編集で予期せぬ箇所まで変わるのは危険なので、まずは「最初の1箇所」だけ置換する仕様にする。
+			const content = this.files[p];
+			const originalLength = content.length;
 
 			let regex;
 			try {
 				regex = new RegExp(patternStr, 'm');
 			} catch (e) {
-				throw new Error(`Invalid Regular Expression: ${e.message}`);
+				throw new Error(`Invalid RegExp: ${e.message}`);
 			}
 
 			if (!regex.test(content)) {
-				// デバッグしやすいように、パターンの先頭一部だけエラーメッセージに含める
-				const disp = patternStr.length > 50 ? patternStr.substring(0, 50) + "..." : patternStr;
-				throw new Error(`Pattern not found in ${path}.\nPattern: ${disp}`);
+				// パターンの先頭だけ表示してヒントを与える
+				const snippet = patternStr.length > 50 ? patternStr.slice(0, 50) + "..." : patternStr;
+				throw new Error(`Pattern not found in ${p}. Search: "${snippet}"`);
 			}
 
-			// 置換実行
-			// String.prototype.replace は正規表現を渡すと、最初のマッチのみ置換する（gフラグがない場合）
 			const newContent = content.replace(regex, replacement);
+			if (newContent === content) throw new Error(`Pattern matched but replacement resulted in no change.`);
 
-			// 変更がなかった場合（testは通ったがreplaceで変わらなかった奇妙なケース）
-			if (newContent === content) {
-				throw new Error(`Pattern matched but replacement resulted in no change.`);
-			}
-
-			this.files[path] = newContent;
+			this.files[p] = newContent;
 			this.notify();
-			return `Replaced pattern match in ${path}`;
+			return `Replaced pattern match in ${p}. (Size: ${originalLength} -> ${newContent.length} chars)`;
 		}
 
-		// --- 従来の行指定編集 (Fallback用) ---
 		editLines(path, startLine, endLine, mode, newContent = "") {
-			if (!this.exists(path)) throw new Error(`File not found: ${path}`);
+			const p = this._norm(path);
+			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
 
-			const content = this.files[path];
+			const content = this.files[p];
 			let lines = content.split(/\r?\n/);
 
-			// 1. Newline Sanitization
 			let cleanContent = newContent;
 			if (cleanContent.startsWith('\n')) cleanContent = cleanContent.substring(1);
 			if (cleanContent.endsWith('\n')) cleanContent = cleanContent.substring(0, cleanContent.length - 1);
-
 			const newLines = cleanContent.split(/\r?\n/);
+
 			const sLine = parseInt(startLine);
 			const sIdx = Math.max(0, sLine - 1);
 			const eLine = parseInt(endLine);
+
+			let actionLog = "";
 
 			if (mode === 'replace') {
 				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='replace'");
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, deleteCount, ...newLines);
+				actionLog = `Replaced lines ${sLine}-${eLine}`;
 			} else if (mode === 'insert') {
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, 0, ...newLines);
+				actionLog = `Inserted ${newLines.length} lines at line ${sLine}`;
 			} else if (mode === 'delete') {
 				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='delete'");
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				if (sIdx < lines.length) lines.splice(sIdx, deleteCount);
+				actionLog = `Deleted lines ${sLine}-${eLine}`;
 			} else {
 				throw new Error(`Unknown edit mode: ${mode}`);
 			}
 
-			this.files[path] = lines.join('\n');
+			this.files[p] = lines.join('\n');
 			this.notify();
-			return `Edited ${path} (Mode: ${mode}, Lines: ${startLine}${mode === 'insert' ? '' : '-' + endLine})`;
+			return `Edited ${p}: ${actionLog}`;
 		}
 	}
 

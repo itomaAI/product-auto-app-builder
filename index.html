@@ -1,22 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- ... Head (styles) ... -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MetaForge v2 - ALLA Architecture</title>
+    <title>MetaForge v2.2</title>
     
-    <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <style>
+        /* ... Existing Styles ... */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #1e1e1e; }
         ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         body { font-family: 'Inter', system-ui, sans-serif; }
         
-        /* Resizer Styles (Restored) */
         .resizer {
             width: 4px;
             background: #374151;
@@ -37,11 +37,26 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* Modal Animation */
         .modal { transition: opacity 0.2s ease-in-out; }
         .modal-content { transition: transform 0.2s ease-in-out; }
         .modal.hidden { opacity: 0; pointer-events: none; }
         .modal.hidden .modal-content { transform: scale(0.95); }
+
+        /* Tree View */
+        .tree-node:hover > .tree-content { background-color: #374151; }
+        .tree-children { margin-left: 0; }
+        
+        /* Context Menu */
+        #context-menu {
+            position: absolute;
+            z-index: 100;
+            min-width: 140px;
+            background: #1f2937;
+            border: 1px solid #4b5563;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            padding: 4px 0;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 h-screen flex flex-col overflow-hidden">
@@ -50,9 +65,8 @@
     <header class="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-10">
         <div class="flex items-center gap-2">
             <div class="w-6 h-6 bg-blue-600 rounded flex items-center justify-center font-bold text-white text-xs">MF</div>
-            <h1 class="font-bold text-gray-100 tracking-wide">MetaForge <span class="text-xs font-normal text-gray-400">ALLA</span></h1>
+            <h1 class="font-bold text-gray-100 tracking-wide">MetaForge <span class="text-xs font-normal text-gray-400">v2.2</span></h1>
         </div>
-        
         <div class="flex items-center gap-3">
             <input type="password" id="api-key" placeholder="Gemini API Key" 
                    class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400">
@@ -64,18 +78,30 @@
     <div class="flex-1 flex overflow-hidden">
         
         <!-- 1. Left Sidebar (File Explorer) -->
-        <div class="w-64 bg-gray-800 flex flex-col shrink-0 border-r border-gray-700">
+        <!-- Removed 'w-64' to allow resizing via style attribute -->
+        <div id="sidebar" class="bg-gray-800 flex flex-col shrink-0 border-r border-gray-700" style="width: 250px;">
             
-            <!-- Project Header (Restored) -->
-            <div class="h-10 bg-gray-900 border-b border-gray-700 flex items-center justify-between px-3 shrink-0">
-                <div class="flex-1 flex items-center min-w-0 mr-2 cursor-pointer hover:bg-gray-800 rounded px-1 group relative" id="project-select-trigger">
-                    <span id="current-project-name" class="text-xs font-bold text-gray-200 truncate select-none">Project Name</span>
-                    <svg class="w-3 h-3 ml-1 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            <!-- Project Header (Updated) -->
+            <div class="h-10 bg-gray-900 border-b border-gray-700 flex items-center justify-between px-3 shrink-0 relative group">
+                
+                <div class="flex-1 flex items-center min-w-0 mr-2 overflow-hidden">
+                    <!-- Name (Click for History) -->
+                    <div id="project-select-trigger" class="flex-1 flex items-center cursor-pointer hover:bg-gray-800 rounded px-1 transition truncate" title="Switch Project">
+                        <span id="current-project-name" class="text-xs font-bold text-gray-200 truncate select-none">Project Name</span>
+                        <svg class="w-3 h-3 ml-1 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
                     
-                    <!-- Inline Rename Input -->
-                    <input type="text" id="project-rename-input" class="absolute inset-0 bg-gray-700 text-white text-xs px-1 rounded outline-none border border-blue-500 hidden">
+                    <!-- Edit Button (Click for Rename) -->
+                    <button id="btn-rename-project" class="ml-1 p-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded opacity-0 group-hover:opacity-100 transition shrink-0" title="Rename Project">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </button>
                 </div>
-                <button id="btn-new-project" title="New Project" class="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition">
+
+                <!-- Input (Overlay) -->
+                <input type="text" id="project-rename-input" class="absolute inset-x-2 top-1.5 h-7 bg-gray-800 text-white text-xs px-2 rounded outline-none border border-blue-500 hidden z-20 shadow-lg">
+                
+                <!-- New Project Button -->
+                <button id="btn-new-project" title="New Project" class="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                 </button>
             </div>
@@ -90,8 +116,8 @@
                 </div>
             </div>
             
-            <div class="flex-1 overflow-y-auto p-2" id="file-list-container">
-                <ul id="file-list" class="space-y-1 text-sm font-mono"></ul>
+            <div class="flex-1 overflow-y-auto p-0" id="file-explorer">
+                <!-- Tree items -->
             </div>
 
             <div class="p-2 border-t border-gray-700 space-y-2">
@@ -104,9 +130,14 @@
                         Files
                         <input type="file" id="files-upload" class="hidden" multiple>
                     </label>
+                    <!-- NEW: Hidden input for context menu upload -->
+                    <input type="file" id="context-upload-input" class="hidden" multiple>
                 </div>
             </div>
         </div>
+
+        <!-- NEW: Explorer Resizer -->
+        <div id="explorer-resizer" class="resizer"></div>
 
         <!-- 2. Center (Preview) -->
         <div class="flex-1 flex flex-col bg-gray-900 min-w-0 relative">
@@ -133,52 +164,56 @@
             <div id="editor-overlay" class="absolute inset-0 bg-gray-900 hidden z-20 flex flex-col">
                 <div class="h-8 bg-gray-800 flex justify-between items-center px-4 border-b border-gray-700">
                     <span id="editor-filename" class="text-xs font-mono text-gray-300">filename.js</span>
-                    <button id="btn-close-editor" class="text-gray-400 hover:text-white">✕</button>
+                    <div class="flex gap-2">
+                        <button id="btn-save-editor" class="text-xs bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-white transition">Save (Ctrl+S)</button>
+                        <button id="btn-close-editor" class="text-gray-400 hover:text-white text-lg leading-none">×</button>
+                    </div>
                 </div>
                 <textarea id="code-editor" class="flex-1 bg-gray-900 text-gray-300 font-mono text-sm p-4 outline-none resize-none"></textarea>
             </div>
+
+            <!-- NEW: Media Viewer Overlay -->
+            <div id="media-overlay" class="absolute inset-0 bg-gray-900 bg-opacity-95 hidden z-30 flex flex-col items-center justify-center">
+                <div class="absolute top-0 left-0 right-0 h-10 bg-gray-800 flex justify-between items-center px-4 border-b border-gray-700">
+                    <span id="media-filename" class="text-xs font-mono text-gray-300">image.png</span>
+                    <button id="btn-close-media" class="text-gray-400 hover:text-white text-lg leading-none">×</button>
+                </div>
+                <img id="media-image" class="max-w-[90%] max-h-[80%] rounded shadow-lg border border-gray-700">
+            </div>
         </div>
 
-        <!-- Resizer Handle (Restored) -->
+        <!-- Chat Resizer -->
         <div id="chat-resizer" class="resizer"></div>
 
         <!-- 3. Right Sidebar (Chat) -->
         <div id="chat-panel" class="bg-gray-800 flex flex-col shrink-0" style="width: 400px; min-width: 300px; max-width: 800px;">
-            <div class="h-10 border-b border-gray-700 flex items-center justify-between px-4 bg-gray-800 shrink-0">
+            <!-- ... Chat Content (Same as before) ... -->
+             <div class="h-10 border-b border-gray-700 flex items-center justify-between px-4 bg-gray-800 shrink-0">
                 <span class="text-xs font-bold text-gray-400 uppercase">AI Architect</span>
                 <div class="flex items-center gap-2">
                     <button id="btn-clear-chat" title="Clear History" class="text-gray-500 hover:text-red-400">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                     </button>
-                    <span id="model-status" class="text-[10px] text-gray-500">Gemini-3</span>
+                    <span id="model-status" class="text-[10px] text-gray-500">Gemini</span>
                 </div>
             </div>
 
-            <div id="chat-history" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-900">
-                <!-- Chat items go here -->
-            </div>
+            <div id="chat-history" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-900"></div>
 
             <div class="p-3 bg-gray-800 border-t border-gray-700">
                 <div id="file-preview-area" class="mb-2 hidden flex flex-wrap gap-2"></div>
-                
                 <div id="ai-typing" class="text-xs text-blue-400 mb-2 hidden flex items-center gap-1">
                     <span class="animate-pulse">●</span> AI is coding...
                 </div>
-                
                 <div class="relative bg-gray-900 border border-gray-700 rounded-lg focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition">
                     <textarea id="chat-input" rows="3" 
                         class="w-full bg-transparent border-none text-sm text-gray-200 focus:ring-0 p-3 pb-10 resize-none scrollbar-hide block"
                         placeholder="Message... (Ctrl+Enter)"></textarea>
-                    
-                    <!-- Bottom Action Bar -->
                     <div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
-                        <!-- Attachment Button -->
                         <label class="cursor-pointer text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700 transition" title="Attach file to chat">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
                             <input type="file" id="chat-file-upload" class="hidden" multiple>
                         </label>
-
-                        <!-- Send/Stop Buttons -->
                         <div>
                             <button id="btn-send" class="p-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
@@ -193,16 +228,14 @@
         </div>
     </div>
 
-    <!-- Project History Modal (Restored) -->
+    <!-- Modals (Project & Context Menu) -->
     <div id="project-modal" class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden flex items-center justify-center modal">
         <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700 flex flex-col max-h-[80vh] modal-content">
             <div class="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h3 class="font-bold text-gray-200">Project History</h3>
                 <button id="btn-close-modal" class="text-gray-400 hover:text-white">✕</button>
             </div>
-            <div class="flex-1 overflow-y-auto p-2" id="project-list">
-                <!-- Project Items -->
-            </div>
+            <div class="flex-1 overflow-y-auto p-2" id="project-list"></div>
             <div class="p-4 border-t border-gray-700 bg-gray-900 rounded-b-lg">
                 <button id="btn-new-project-modal" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-sm font-bold transition">
                     + Create New Project
@@ -211,38 +244,33 @@
         </div>
     </div>
 
-    <!-- Scripts: ALLA Architecture Loading Order -->
-    
-    <!-- 1. Core Engine -->
+    <div id="context-menu" class="hidden text-sm py-1"></div>
+
+    <!-- Scripts -->
     <script src="src/lib/types.js"></script>
     <script src="src/lib/state.js"></script>
     <script src="src/lib/interfaces.js"></script>
     <script src="src/lib/engine.js"></script>
-    
-    <!-- 2. Configuration -->
     <script src="src/app/config.js"></script>
-
-    <!-- 3. Adapters -->
     <script src="src/app/adapters/gemini.js"></script>
     <script src="src/app/adapters/lpml.js"></script>
     <script src="src/app/adapters/projector.js"></script>
     <script src="src/app/adapters/storage.js"></script>
-
-    <!-- 4. World & Infrastructure -->
     <script src="src/app/world/vfs.js"></script>
     <script src="src/app/world/compiler.js"></script>
-
-    <!-- 5. UI -->
+    <!-- Components -->
     <script src="src/app/ui/dom.js"></script>
+    <script src="src/app/ui/tree_view.js"></script>
+    <script src="src/app/ui/chat.js"></script>
+    <script src="src/app/ui/editor.js"></script>
+    <script src="src/app/ui/media_viewer.js"></script> <!-- NEW -->
+    <script src="src/app/ui/explorer.js"></script>
     <script src="src/app/ui/controller.js"></script>
-
-    <!-- 6. Tools -->
+    <!-- Tools & Main -->
     <script src="src/app/tools/registry.js"></script>
     <script src="src/app/tools/fs_tools.js"></script>
     <script src="src/app/tools/nav_tools.js"></script>
     <script src="src/app/tools/ui_tools.js"></script>
-
-    <!-- 7. Main -->
     <script src="src/app/main.js"></script>
 
 </body>

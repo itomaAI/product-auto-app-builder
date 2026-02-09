@@ -501,6 +501,16 @@ Notes:
     - The assistant must not use this tag.
 </define_tag>
 
+<define_tag name="event">
+Represents an external event or user action that changed the environment state.
+Attributes:
+    - type: The type of event (e.g., "file_change", "file_created", "file_deleted", "file_moved").
+Content:
+    - Description of the change.
+Notes:
+    - This tag is injected by the System. You should use this information to update your context but do NOT execute it.
+</define_tag>
+
 <define_tag name="thinking">
 This tag represents a thought process.
 Thought processes must be in English.
