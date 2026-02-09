@@ -100,13 +100,12 @@
 		}
 
 		injectScreenshotHelper(html) {
-			const script = `
+        const script = `
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
 <script>
 window.addEventListener('message', async (e) => {
     if (e.data.action === 'CAPTURE') {
         try {
-            // ライブラリのロード待機
             let attempts = 0;
             while (typeof htmlToImage === 'undefined' && attempts < 20) {
                 await new Promise(r => setTimeout(r, 100));
@@ -114,19 +113,39 @@ window.addEventListener('message', async (e) => {
             }
             if (typeof htmlToImage === 'undefined') throw new Error('html-to-image failed to load');
 
-            // キャプチャ実行
             const data = await htmlToImage.toPng(document.body, { 
                 backgroundColor: null,
-
-                // ▼▼▼ 追加: エラーが発生した要素をスキップして続行する ▼▼▼
-                skipOnError: true, 
+                skipOnError: true,
+                preferredFontFormat: 'woff2',
+    
+                // ▼▼▼ 追加: 問題のある要素を除外するフィルタ ▼▼▼
+                filter: (node) => {
+                    // imgタグの場合、src属性を確認
+                    if (node.tagName === 'IMG') {
+                        // srcがない、空文字、または現在のページURLと同じ（src=""の挙動）場合は除外
+                        if (!node.src || node.src === '' || node.src === window.location.href) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
             });
 
             parent.postMessage({ type: 'SCREENSHOT_RESULT', data }, '*');
         } catch (err) {
             console.error('Screenshot failed:', err);
-            // エラーオブジェクトがEvent型の場合があるのでメッセージを安全に抽出
-            const msg = err.message || (err.type === 'error' ? 'Resource loading failed (check console)' : String(err));
+
+            // エラーの詳細を文字列化して親へ送る
+            let msg = 'Unknown Error';
+            if (err instanceof Error) {
+                msg = err.message;
+            } else if (err.target && err.target.tagName) {
+                // Eventオブジェクトの場合 (画像のロードエラーなど)
+                msg = 'Element load error: ' + err.target.tagName + (err.target.id ? '#' + err.target.id : '');
+            } else {
+                msg = String(err);
+            }
+
             parent.postMessage({ type: 'SCREENSHOT_ERROR', message: msg }, '*');
         }
     }
