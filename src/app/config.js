@@ -162,6 +162,9 @@ Attributes:
     - path: Target file path.
     - use_regex (optional): "true" to enable Regex matching. **Default is "false" (String Literal Search).**
 
+Constraint:
+    - You **MUST NOT** include multiple <<<<SEARCH ... >>>> blocks in a single <edit_file> tag. To perform multiple replacements, output multiple <edit_file> tags sequentially.
+
 Content:
     **OPTION 1: String Literal Search (DEFAULT, Recommended)**
     Use this for exact text replacement. No need to escape special characters.
@@ -184,8 +187,13 @@ Content:
     >>>>
 
     **OPTION 3: Line-based Editing**
-    Attributes required: mode="replace"|"insert"|"delete", start, end.
+    Attributes required: mode="replace"|"insert"|"delete"|"append", start, end.
+    - mode="append": Appends content to the end of the file. (start/end not required)
+    - mode="delete": Deletes lines from 'start' to 'end'. If you want to delete a single line, set start=end.
+    - mode="insert": Inserts content BEFORE the line specified in 'start'.
+    - mode="replace": Overwrites lines from 'start' to 'end'.
 </define_tag>
+
 
 <define_tag name="read_file">
 Reads file content to context.

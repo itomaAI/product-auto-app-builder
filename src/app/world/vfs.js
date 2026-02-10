@@ -231,8 +231,10 @@
 			let lines = content.split(/\r?\n/);
 
 			let cleanContent = newContent;
+			// Remove surrounding newlines for cleaner insertion
 			if (cleanContent.startsWith('\n')) cleanContent = cleanContent.substring(1);
 			if (cleanContent.endsWith('\n')) cleanContent = cleanContent.substring(0, cleanContent.length - 1);
+
 			const newLines = cleanContent.split(/\r?\n/);
 
 			const sLine = parseInt(startLine);
@@ -241,26 +243,42 @@
 
 			let actionLog = "";
 
-			if (mode === 'replace') {
+			if (mode === 'append') {
+				// ★ Append Mode
+				let updatedContent = content;
+				if (updatedContent.length > 0 && !updatedContent.endsWith('\n')) {
+					updatedContent += '\n'; // Ensure newline before appending
+				}
+				updatedContent += cleanContent;
+
+				this.files[p] = updatedContent;
+				actionLog = `Appended ${newLines.length} lines to end of file`;
+
+			} else if (mode === 'replace') {
 				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='replace'");
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, deleteCount, ...newLines);
 				actionLog = `Replaced lines ${sLine}-${eLine}`;
+				this.files[p] = lines.join('\n');
+
 			} else if (mode === 'insert') {
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, 0, ...newLines);
 				actionLog = `Inserted ${newLines.length} lines at line ${sLine}`;
+				this.files[p] = lines.join('\n');
+
 			} else if (mode === 'delete') {
 				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='delete'");
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				if (sIdx < lines.length) lines.splice(sIdx, deleteCount);
 				actionLog = `Deleted lines ${sLine}-${eLine}`;
+				this.files[p] = lines.join('\n');
+
 			} else {
 				throw new Error(`Unknown edit mode: ${mode}`);
 			}
 
-			this.files[p] = lines.join('\n');
 			this.notify();
 			return `Edited ${p}: ${actionLog}`;
 		}
