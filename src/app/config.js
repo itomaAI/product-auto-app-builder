@@ -163,7 +163,8 @@ Attributes:
     - use_regex (optional): "true" to enable Regex matching. **Default is "false" (String Literal Search).**
 
 Constraint:
-    - You **MUST NOT** include multiple <<<<SEARCH ... >>>> blocks in a single <edit_file> tag. To perform multiple replacements, output multiple <edit_file> tags sequentially.
+    - **You MUST provide only ONE replacement block per <edit_file> tag.**
+    - If you need to modify multiple locations, use multiple <edit_file> tags.
 
 Content:
     **OPTION 1: String Literal Search (DEFAULT, Recommended)**
