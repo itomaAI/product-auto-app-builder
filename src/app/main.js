@@ -193,10 +193,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 	});
 	document.addEventListener('project-delete', async (e) => {
 		const id = e.detail;
+
+		// 1. 削除実行
 		await storage.deleteProject(id);
+
+		// 2. プロジェクトリスト更新
 		const projects = await storage.getAllProjectsMetadata();
 		ui.renderProjectList(projects);
-		if (id === currentProjectId) await createNewProject();
+
+		// 3. 開いていたプロジェクトを削除した場合の移動処理
+		if (id === currentProjectId) {
+			if (projects.length > 0) {
+				const nextId = projects[0].id;
+				const nextProject = await storage.getProject(nextId);
+
+				if (nextProject) {
+					loadProjectData(nextProject);
+					await storage.setLastProjectId(nextId);
+				} else {
+					await createNewProject();
+				}
+			} else {
+				await createNewProject();
+			}
+		}
 	});
 
 	// New Project Button

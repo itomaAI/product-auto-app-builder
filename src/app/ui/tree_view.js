@@ -27,6 +27,8 @@
 			if (!this.container) return;
 			// コンテナ自体のスタイル（ルートドロップ用）をリセット
 			this.container.classList.remove('bg-gray-700', 'border-2', 'border-dashed', 'border-blue-500');
+			// ★ 他のスタイルも念のためリセット
+			this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
 
 			this.container.innerHTML = '';
 			// コンテナ全体をルートドロップ領域として機能させるため高さを確保
@@ -125,29 +127,44 @@
 
 			this.container.addEventListener('dragover', (e) => {
 				e.preventDefault();
-				// 直接のターゲットがコンテナまたはルートリストの場合のみ反応
-				if (e.target === this.container || e.target.classList.contains('tree-root')) {
-					this.container.classList.add('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
-				}
+				e.stopPropagation(); // ★ 親(Sidebar)へのバブリングを防止
+				e.dataTransfer.dropEffect = 'move'; // 親のcopyを上書き
+
+				// フォルダノード上のイベントは stopPropagation されているため、
+				// ここに到達するイベント＝「ファイルの上」または「余白」＝「ルートへのドロップ」とみなす
+				this.container.classList.add('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
 			});
 
 			this.container.addEventListener('dragleave', (e) => {
-				this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+				e.preventDefault();
+				e.stopPropagation(); // ★ 親へのバブリング防止
+
+				// 子要素（ファイルノードなど）に入っただけなら解除しない
+				if (!this.container.contains(e.relatedTarget)) {
+					this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+				}
 			});
 
 			this.container.addEventListener('drop', (e) => {
+				e.preventDefault();
+				e.stopPropagation(); // ★ 親(Sidebar)のアップロード処理発動を防止
+
 				this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
 				if (!e.dataTransfer.types.includes('application/json')) return;
 
 				const data = JSON.parse(e.dataTransfer.getData('application/json'));
-				// ルートへ移動 (destFolder = "")
+				// ルートへ移動
 				this._emitMove(data.path, "");
 			});
 
-			// ドラッグ終了時にスタイルを戻す
+			// ドラッグ終了時にスタイルを戻す (これはdocument全体なのでそのまま)
 			document.addEventListener('dragend', (e) => {
 				if (e.target && e.target.classList && e.target.classList.contains('tree-content')) {
 					e.target.style.opacity = '1';
+				}
+				// 安全策：強制的にリセット
+				if (this.container) {
+					this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
 				}
 			});
 		}
