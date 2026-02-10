@@ -6,14 +6,18 @@
 
 	global.App.Tools.registerFSTools = function(registry, vfs) {
 
-		// --- read_file (画像拡張子追加済み) ---
 		registry.register('read_file', async (params, state) => {
-			const isImage = params.path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp)$/i);
+            const BINARY_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg)$/i;
+			const isBinary = params.path.match(BINARY_EXTS);
 			const content = vfs.readFile(params.path);
 
-			if (isImage) {
+			if (isBinary) {
 				let base64 = content;
-				let mimeType = 'image/png';
+				let mimeType = 'application/octet-stream';
+
+                if (params.path.match(/\.pdf$/i)) mimeType = 'application/pdf';
+                else if (params.path.match(/\.zip$/i)) mimeType = 'application/zip';
+                else if (params.path.match(/\.(mp4|webm)$/i)) mimeType = 'video/mp4';
 
 				if (content.startsWith('data:')) {
 					const parts = content.split(',');
@@ -27,9 +31,9 @@
 				}
 
 				return {
-					log: `[read_file] Read image file: ${params.path}`,
-					ui: `🖼️ Read Image ${params.path}`,
-					image: base64,
+					log: `[read_file] Read binary file: ${params.path} (${mimeType})`,
+					ui: `📦 Read Binary ${params.path}`,
+					image: base64, 
 					mimeType: mimeType
 				};
 			}

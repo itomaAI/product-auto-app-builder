@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 	// --- 9. Boot Sequence ---
-	console.log("MetaForge v2.2 (REAL+DI) Booting...");
+	console.log("MetaForge v2.3 (REAL+DI) Booting...");
 	try {
 		const lastId = await storage.getLastProjectId();
 		if (lastId) {

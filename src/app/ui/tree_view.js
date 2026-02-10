@@ -12,7 +12,11 @@
 			this.expandedPaths = new Set();
 			this.selectedPath = null;
 
+			// ドラッグ中の情報
+			this.dragSrcPath = null;
+
 			this._initGlobalEvents();
+			this._initRootDropZone(); // ルートへのドロップ対応
 		}
 
 		on(event, callback) {
@@ -21,9 +25,13 @@
 
 		render(treeData) {
 			if (!this.container) return;
+			// コンテナ自体のスタイル（ルートドロップ用）をリセット
+			this.container.classList.remove('bg-gray-700', 'border-2', 'border-dashed', 'border-blue-500');
+
 			this.container.innerHTML = '';
+			// コンテナ全体をルートドロップ領域として機能させるため高さを確保
 			const rootUl = document.createElement('ul');
-			rootUl.className = 'tree-root text-sm font-mono text-gray-300';
+			rootUl.className = 'tree-root text-sm font-mono text-gray-300 min-h-full pb-4';
 			this._buildTree(rootUl, treeData, 0);
 			this.container.appendChild(rootUl);
 		}
@@ -39,11 +47,22 @@
 				div.dataset.path = node.path;
 				div.dataset.type = node.type;
 
+				// --- Drag & Drop Events ---
+				div.draggable = true;
+				div.addEventListener('dragstart', (e) => this._handleDragStart(e, node));
+
+				// フォルダのみドロップ対象にする
+				if (node.type === 'folder') {
+					div.addEventListener('dragover', (e) => this._handleDragOver(e, div));
+					div.addEventListener('dragleave', (e) => this._handleDragLeave(e, div));
+					div.addEventListener('drop', (e) => this._handleDrop(e, node, div));
+				}
+
 				const icon = node.type === 'folder' ?
 					(this.expandedPaths.has(node.path) ? '📂' : '📁') :
 					this._getFileIcon(node.name);
 
-				div.innerHTML = `<span class="mr-2 opacity-80 text-xs">${icon}</span><span class="truncate">${node.name}</span>`;
+				div.innerHTML = `<span class="mr-2 opacity-80 text-xs pointer-events-none">${icon}</span><span class="truncate pointer-events-none">${node.name}</span>`;
 				div.onclick = (e) => this._handleClick(e, node);
 				div.oncontextmenu = (e) => this._handleContextMenu(e, node);
 
@@ -59,12 +78,107 @@
 			});
 		}
 
+		// --- Drag & Drop Handlers ---
+
+		_handleDragStart(e, node) {
+			e.stopPropagation();
+			this.dragSrcPath = node.path;
+			e.dataTransfer.effectAllowed = 'move';
+			// アプリ内移動用のデータ
+			e.dataTransfer.setData('application/json', JSON.stringify({
+				path: node.path,
+				type: node.type
+			}));
+			e.target.style.opacity = '0.5';
+		}
+
+		_handleDragOver(e, element) {
+			e.preventDefault(); // ドロップ許可
+			e.stopPropagation();
+			e.dataTransfer.dropEffect = 'move';
+			element.classList.add('bg-blue-900', 'text-white'); // ハイライト
+		}
+
+		_handleDragLeave(e, element) {
+			e.preventDefault();
+			e.stopPropagation();
+			element.classList.remove('bg-blue-900', 'text-white');
+		}
+
+		_handleDrop(e, targetNode, element) {
+			e.preventDefault();
+			e.stopPropagation();
+			element.classList.remove('bg-blue-900', 'text-white');
+
+			// 外部ファイルアップロードとの競合回避（JSONデータがない場合は無視）
+			if (!e.dataTransfer.types.includes('application/json')) return;
+
+			const data = JSON.parse(e.dataTransfer.getData('application/json'));
+			const srcPath = data.path;
+			const destFolder = targetNode.path;
+
+			this._emitMove(srcPath, destFolder);
+		}
+
+		_initRootDropZone() {
+			if (!this.container) return;
+
+			this.container.addEventListener('dragover', (e) => {
+				e.preventDefault();
+				// 直接のターゲットがコンテナまたはルートリストの場合のみ反応
+				if (e.target === this.container || e.target.classList.contains('tree-root')) {
+					this.container.classList.add('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+				}
+			});
+
+			this.container.addEventListener('dragleave', (e) => {
+				this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+			});
+
+			this.container.addEventListener('drop', (e) => {
+				this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+				if (!e.dataTransfer.types.includes('application/json')) return;
+
+				const data = JSON.parse(e.dataTransfer.getData('application/json'));
+				// ルートへ移動 (destFolder = "")
+				this._emitMove(data.path, "");
+			});
+
+			// ドラッグ終了時にスタイルを戻す
+			document.addEventListener('dragend', (e) => {
+				if (e.target && e.target.classList && e.target.classList.contains('tree-content')) {
+					e.target.style.opacity = '1';
+				}
+			});
+		}
+
+		_emitMove(srcPath, destFolder) {
+			const fileName = srcPath.split('/').pop();
+			const newPath = destFolder ? `${destFolder}/${fileName}` : fileName;
+
+			if (srcPath === newPath) return;
+			const currentDir = srcPath.substring(0, srcPath.lastIndexOf('/'));
+			if (currentDir === destFolder) return;
+
+			// 親フォルダを自分のサブフォルダに移動しようとしていないかチェック
+			if (destFolder.startsWith(srcPath + '/')) {
+				alert("Cannot move a folder into its own subfolder.");
+				return;
+			}
+
+			if (this.events['move']) {
+				this.events['move'](srcPath, newPath);
+			}
+		}
+
 		_getFileIcon(filename) {
 			if (filename.endsWith('.js')) return '📜';
 			if (filename.endsWith('.html')) return '🌐';
 			if (filename.endsWith('.css')) return '🎨';
 			if (filename.endsWith('.json')) return '🔧';
 			if (filename.match(/\.(png|jpg|jpeg|svg|gif|webp|ico)$/i)) return '🖼️';
+			if (filename.endsWith('.pdf')) return '📕';
+			if (filename.endsWith('.zip')) return '📦';
 			return '📄';
 		}
 
@@ -102,7 +216,6 @@
 		_showContextMenu(x, y, node) {
 			if (!this.contextMenu) return;
 
-			// 1. メニュー項目を構築
 			this.contextMenu.innerHTML = '';
 			const actions = [];
 
@@ -138,6 +251,15 @@
 				label: 'Rename (Move)',
 				action: () => this._promptRename(node)
 			});
+
+			// Download
+			actions.push({
+				label: 'Download',
+				action: () => {
+					if (this.events['download']) this.events['download'](node.path);
+				}
+			});
+
 			actions.push({
 				label: 'Delete',
 				action: () => this._confirmDelete(node),
@@ -161,21 +283,17 @@
 				this.contextMenu.appendChild(btn);
 			});
 
-			// 2. 表示してサイズを取得（位置計算のため）
 			this.contextMenu.classList.remove('hidden');
 			const rect = this.contextMenu.getBoundingClientRect();
 			const winWidth = window.innerWidth;
 			const winHeight = window.innerHeight;
 
-			// 3. 画面からはみ出さないように補正
 			let posX = x;
 			let posY = y;
 
-			// 右にはみ出るなら左側に表示
 			if (posX + rect.width > winWidth) {
 				posX = winWidth - rect.width - 5;
 			}
-			// 下にはみ出るなら上側に表示
 			if (posY + rect.height > winHeight) {
 				posY = winHeight - rect.height - 5;
 			}

@@ -110,12 +110,30 @@
 				}
 			});
 
+			this.treeView.on('move', (srcPath, destPath) => {
+				try {
+					const msg = this.vfs.rename(srcPath, destPath);
+					this._emitHistoryEvent('file_moved', `User moved file (drag&drop): ${msg}`);
+				} catch (e) {
+					alert(`Move failed: ${e.message}`);
+				}
+			});
+
 			this.treeView.on('delete', (path) => {
 				try {
 					const msg = this.vfs.deleteFile(path);
 					this._emitHistoryEvent('file_deleted', `User action: ${msg}`);
 				} catch (e) {
 					alert(e.message);
+				}
+			});
+
+			this.treeView.on('download', (path) => {
+				try {
+					const content = this.vfs.readFile(path);
+					this._downloadFile(path, content);
+				} catch (e) {
+					alert(`Download failed: ${e.message}`);
 				}
 			});
 
@@ -139,7 +157,7 @@
 				};
 			}
 
-			// 2. New: Open Project Folder (Replace Mode)
+			// 2. Open Project Folder (Replace Mode)
 			if (this.btnOpenFolder && this.projectOpenInput) {
 				this.btnOpenFolder.onclick = () => {
 					this.projectOpenInput.value = "";
@@ -150,21 +168,16 @@
 					const files = Array.from(e.target.files);
 					if (files.length === 0) return;
 
-					// Confirm Clearing
 					if (!confirm(`Warning: This will DELETE all current files and replace them with the contents of "${files[0].webkitRelativePath.split('/')[0]}".\n\nContinue?`)) {
 						e.target.value = "";
 						return;
 					}
 
-					// 1. Clear VFS (Silent)
-					// 直接オブジェクトを空にする（notifyは後でまとめて行う）
+					// Clear VFS
 					Object.keys(this.vfs.files).forEach(k => delete this.vfs.files[k]);
 
-					// 2. Import Files (Batch)
 					const uploadedPaths = [];
 					for (const file of files) {
-						// ルートディレクトリ名の除去ロジック
-						// "MyProject/src/index.js" -> "src/index.js"
 						let relPath = file.webkitRelativePath;
 						const parts = relPath.split('/');
 						if (parts.length > 1) {
@@ -173,7 +186,6 @@
 							relPath = file.name;
 						}
 
-						// 除外リスト
 						if (relPath.startsWith('.git/') || relPath.includes('/.git/') || relPath === '.DS_Store') continue;
 						if (!relPath) continue;
 
@@ -185,28 +197,125 @@
 								content = await file.text();
 							}
 
-							// 直接書き込み (Batch処理のため notify しない)
 							const normalizedPath = relPath.replace(/^\/+/, '');
 							this.vfs.files[normalizedPath] = content;
 							uploadedPaths.push(normalizedPath);
-
 						} catch (err) {
 							console.error(`Failed to import ${relPath}:`, err);
 						}
 					}
 
-					// 3. Notify & Update History
 					this.vfs.notify();
-
 					this._emitHistoryEvent('project_imported',
 						`User opened folder (cleared previous state). Imported ${uploadedPaths.length} files.`);
 
 					e.target.value = "";
 				};
 			}
+
+			// 3. Sidebar Drag & Drop (Recursive Folder Upload)
+			if (this.sidebar) {
+				['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+					this.sidebar.addEventListener(eventName, (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+					}, false);
+				});
+
+				this.sidebar.addEventListener('dragover', (e) => {
+					e.dataTransfer.dropEffect = 'copy';
+					this.sidebar.classList.add('bg-gray-700');
+				});
+				this.sidebar.addEventListener('dragleave', () => {
+					this.sidebar.classList.remove('bg-gray-700');
+				});
+
+				this.sidebar.addEventListener('drop', async (e) => {
+					this.sidebar.classList.remove('bg-gray-700');
+
+					const items = e.dataTransfer.items;
+					if (!items) return;
+
+					const promises = [];
+					// FileSystemEntry API (webkitGetAsEntry) を使用してディレクトリを走査
+					for (let i = 0; i < items.length; i++) {
+						const item = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+						if (item) {
+							promises.push(this._traverseFileTree(item, ""));
+						}
+					}
+
+					const fileEntries = (await Promise.all(promises)).flat();
+					if (fileEntries.length > 0) {
+						this._batchWriteFiles(fileEntries);
+					}
+				});
+			}
 		}
 
-		// 既存のアップロード処理（追加モード）
+		// --- Helper: Recursive File Traversal ---
+		_traverseFileTree(item, path) {
+			return new Promise((resolve) => {
+				path = path || "";
+				if (item.isFile) {
+					item.file((file) => {
+						file.fullPath = path + file.name;
+						resolve([file]);
+					});
+				} else if (item.isDirectory) {
+					const dirReader = item.createReader();
+					const entries = [];
+
+					const readEntries = () => {
+						dirReader.readEntries(async (results) => {
+							if (!results.length) {
+								const childPromises = entries.map(entry =>
+									this._traverseFileTree(entry, path + item.name + "/")
+								);
+								const childFiles = (await Promise.all(childPromises)).flat();
+								resolve(childFiles);
+							} else {
+								entries.push(...results);
+								readEntries();
+							}
+						});
+					};
+					readEntries();
+				}
+			});
+		}
+
+		async _batchWriteFiles(files) {
+			const uploadedPaths = [];
+			for (const file of files) {
+				let relPath = file.fullPath || file.name;
+				relPath = relPath.replace(/^\/+/, '');
+
+				if (relPath.startsWith('.git/') || relPath.includes('/.git/') || relPath === '.DS_Store') continue;
+
+				let content;
+				try {
+					if (this._isBinary(file)) {
+						content = await this._fileToBase64(file);
+					} else {
+						content = await file.text();
+					}
+
+					this.vfs.writeFile(relPath, content);
+					uploadedPaths.push(relPath);
+				} catch (err) {
+					console.error(`Failed to import ${relPath}:`, err);
+				}
+			}
+
+			if (uploadedPaths.length > 0) {
+				const limit = 5;
+				const fileList = uploadedPaths.slice(0, limit).join(', ');
+				const more = uploadedPaths.length > limit ? `, ... (+${uploadedPaths.length - limit} files)` : '';
+				this._emitHistoryEvent('file_created', `User dropped files/folders:\n${fileList}${more}`);
+			}
+		}
+
 		async _handleUploadAppend(e, isFolder, targetDir = "") {
 			const files = Array.from(e.target.files);
 			const uploadedPaths = [];
@@ -233,13 +342,49 @@
 				const desc = `User uploaded files to "${targetDir || 'root'}":\nFiles: ${fileList}${more}`;
 				this._emitHistoryEvent('file_created', desc);
 			}
-			e.target.value = "";
+			if (e.target && e.target.value !== undefined) {
+				e.target.value = "";
+			}
+		}
+
+		_downloadFile(path, content) {
+			let blob;
+			if (content.startsWith('data:')) {
+				const parts = content.split(',');
+				const mimeString = parts[0].split(':')[1].split(';')[0];
+				const byteString = atob(parts[1]);
+				const ab = new ArrayBuffer(byteString.length);
+				const ia = new Uint8Array(ab);
+				for (let i = 0; i < byteString.length; i++) {
+					ia[i] = byteString.charCodeAt(i);
+				}
+				blob = new Blob([ab], {
+					type: mimeString
+				});
+			} else {
+				blob = new Blob([content], {
+					type: 'text/plain'
+				});
+			}
+
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = path.split('/').pop();
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
 		}
 
 		_isBinary(file) {
 			return file.type.startsWith('image/') ||
 				file.type === 'application/pdf' ||
-				file.name.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|woff|woff2|ttf|eot)$/i);
+				file.type.includes('zip') ||
+				file.type.includes('compressed') ||
+				file.type.startsWith('audio/') ||
+				file.type.startsWith('video/') ||
+				file.name.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|woff|woff2|ttf|eot|otf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg)$/i);
 		}
 
 		_fileToBase64(file) {

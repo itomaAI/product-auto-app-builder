@@ -224,18 +224,26 @@
 						const p = document.createElement('div');
 						p.className = "mb-1";
 						const uiText = item.output.ui || item.output.log || "";
+
+						// 【修正】HTML文字列ではなくtextContentを使用してタグ消失を防ぐ
 						if (item.output.ui) {
-                            const span = document.createElement('span');
-                            span.className = "text-blue-300 font-bold";
-                            span.textContent = uiText;
-                            p.appendChild(span);
-                        } else {
-                            p.textContent = uiText;
-                        }
+							const span = document.createElement('span');
+							span.className = "text-blue-300 font-bold";
+							span.textContent = uiText;
+							p.appendChild(span);
+						} else {
+							p.textContent = uiText;
+						}
+
 						body.appendChild(p);
-						if (item.output.image) this._appendImage(body, item.output.image);
+
+						// 【修正】画像以外のメディアもハンドリング
+						if (item.output.image) {
+							this._appendMedia(body, item.output.image, item.output.mimeType);
+						}
 					} else if (item.inlineData) {
-						this._appendImage(body, item.inlineData.data);
+						// 【修正】画像以外のメディアもハンドリング
+						this._appendMedia(body, item.inlineData.data, item.inlineData.mimeType);
 					}
 				});
 			}
@@ -243,15 +251,63 @@
 			this.els.chatHistory.appendChild(div);
 		}
 
-		_appendImage(container, base64) {
-			const img = document.createElement('img');
-			img.src = `data:image/png;base64,${base64}`;
-			img.className = "h-24 rounded border border-gray-600 cursor-pointer hover:opacity-80 bg-gray-900 mt-2 object-contain";
-			img.onclick = () => {
-				const w = window.open("");
-				w.document.write(`<img src="${img.src}" style="max-width:100%">`);
-			};
-			container.appendChild(img);
+		// 【新設】メディアの種類に応じて表示を切り替えるメソッド
+		_appendMedia(container, base64, mimeType) {
+			// デフォルトは画像として扱う (screenshot等でmimeTypeがない場合)
+			let mime = mimeType;
+			if (!mime) {
+				// Base64ヘッダがあればそこから取得
+				const match = base64.match(/^data:(.*?);base64,/);
+				if (match) {
+					mime = match[1];
+					// ヘッダ付きBase64の場合は本文だけ抽出
+					base64 = base64.split(',')[1];
+				} else {
+					mime = 'image/png';
+				}
+			}
+
+			if (mime.startsWith('image/')) {
+				const img = document.createElement('img');
+				img.src = `data:${mime};base64,${base64}`;
+				img.className = "h-24 rounded border border-gray-600 cursor-pointer hover:opacity-80 bg-gray-900 mt-2 object-contain";
+				img.onclick = () => {
+                    if (this.events['preview_request']) {
+                        this.events['preview_request']('Image Preview', base64, mime);
+                    }
+				};
+				container.appendChild(img);
+			} else {
+				// 画像以外 (PDF, ZIP, Textなど)
+				const div = document.createElement('div');
+				div.className = "flex items-center gap-3 p-3 mt-2 rounded border border-gray-600 bg-gray-800 max-w-xs hover:bg-gray-700 transition select-none cursor-pointer";
+
+				let icon = '📄';
+				if (mime.includes('pdf')) icon = '📕';
+				else if (mime.includes('zip') || mime.includes('compressed')) icon = '📦';
+				else if (mime.includes('text') || mime.includes('json') || mime.includes('javascript')) icon = '📝';
+				else if (mime.includes('audio')) icon = '🎵';
+				else if (mime.includes('video')) icon = '🎬';
+
+				const ext = mime.split('/')[1] || 'FILE';
+
+				div.innerHTML = `
+					<div class="text-2xl">${icon}</div>
+					<div class="flex flex-col overflow-hidden">
+						<span class="text-xs text-gray-300 font-bold font-mono uppercase truncate">${ext}</span>
+						<span class="text-[10px] text-gray-500 truncate">BINARY DATA</span>
+					</div>
+				`;
+
+				div.onclick = () => {
+                    if (this.events['preview_request']) {
+                        const ext = mime.split('/')[1] || 'file';
+                        this.events['preview_request'](`Attachment.${ext}`, base64, mime);
+                    }
+				};
+
+				container.appendChild(div);
+			}
 		}
 
 		renderUploadPreview(file) {
@@ -276,6 +332,7 @@
 				return div.innerHTML;
 			};
 
+			// 【修正】ホワイトリスト廃止・汎用タグパターンマッチ
 			const TAG_NAME_PATTERN = '[a-zA-Z0-9_\\-]+';
 			const TAG_REGEX = new RegExp(
 				`&lt;(${TAG_NAME_PATTERN})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
@@ -329,19 +386,23 @@
 				const pathMatch = attributes.match(/path=["']?([^"'\s]+)["']?/);
 				title = `📝 ${tagName}: ${pathMatch ? pathMatch[1] : ''}`;
 				colorClass = "border-yellow-900 bg-yellow-900/20";
-            } else if (['read_file', 'list_files', 'delete_file', 'move_file', 'preview', 'take_screenshot'].includes(tagName)) {
-                title = `🔧 ${tagName}`;
-                colorClass = "border-gray-600 bg-gray-800";
-            } else {
-                title = `⚙️ ${tagName}`;
-                colorClass = "border-gray-600 bg-gray-700/50";
-            }
+			} else if (['read_file', 'list_files', 'delete_file', 'move_file', 'preview', 'take_screenshot'].includes(tagName)) {
+				title = `🔧 ${tagName}`;
+				colorClass = "border-gray-600 bg-gray-800";
+			} else {
+				// 【修正】未知のタグのフォールバック
+				title = `⚙️ ${tagName}`;
+				colorClass = "border-gray-600 bg-gray-700/50";
+			}
 
 			const openAttr = isOpen ? 'open' : '';
 			let displayContent = innerContent.trim();
 			if (attributes.trim()) displayContent = `<div class="text-[10px] text-gray-500 mb-1 border-b border-gray-700 pb-1">Attrs: ${attributes.trim()}</div>${displayContent}`;
 
-			if (!displayContent) return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block">&lt;${tagName}${attributes} /&gt;</div>`;
+			if (!displayContent) {
+				// 自己終了タグ等の表示
+				return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block opacity-80" title="Tool Call">&lt;${tagName}${attributes} /&gt;</div>`;
+			}
 
 			return `<details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group">
                 <summary class="cursor-pointer p-2 text-xs font-bold text-gray-300 bg-black/20 hover:bg-black/40 select-none flex items-center gap-2">

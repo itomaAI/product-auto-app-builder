@@ -41,18 +41,19 @@
 			});
 		}
 
-        _wireComponents() {
-            // 1. Explorer -> Open File (Router with Exclusive Control)
-            this.explorer.on('open_file', (path, content) => {
-                // Check if image
-                if (path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
-                    this.editor.close(); // ★ テキストエディタが開いていれば閉じる
-                    this.mediaViewer.open(path, content);
-                } else {
-                    this.mediaViewer.close(); // ★ メディアビューアが開いていれば閉じる
-                    this.editor.open(path, content);
-                }
-            });
+		_wireComponents() {
+			// 1. Explorer -> Open File
+			this.explorer.on('open_file', (path, content) => {
+				const BINARY_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|ico|pdf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg|woff|woff2|ttf|eot|otf)$/i;
+
+				if (path.match(BINARY_EXTS)) {
+					this.editor.close();
+					this.mediaViewer.open(path, content);
+				} else {
+					this.mediaViewer.close();
+					this.editor.open(path, content);
+				}
+			});
 
 			// 2. Explorer -> History Event (Immediate Update)
 			this.explorer.on('history_event', (type, description) => {
@@ -65,7 +66,12 @@
 				this.chat.renderHistory(this.state.getHistory());
 			});
 
-			// 3. Editor Save -> VFS & History
+			// 3. Chat -> Media Preview
+			this.chat.on('preview_request', (name, base64, mimeType) => {
+				this.mediaViewer.open(name, base64, mimeType);
+			});
+
+			// 4. Editor Save -> VFS & History
 			this.editor.on('save', (path, content) => {
 				this.vfs.writeFile(path, content);
 
@@ -128,56 +134,58 @@
 			});
 		}
 
-        _bindProjectUI() {
-            // 1. プロジェクト名エリアクリック -> 履歴モーダル
-            if (this.els.projectSelectTrigger) {
-                this.els.projectSelectTrigger.addEventListener('click', (e) => {
-                    // 入力欄が表示されているときはモーダルを開かない
-                    if (!this.els.projectRenameInput.classList.contains('hidden')) return;
-                    this.toggleProjectModal(true);
-                });
-            }
+		_bindProjectUI() {
+			// 1. プロジェクト名エリアクリック -> 履歴モーダル
+			if (this.els.projectSelectTrigger) {
+				this.els.projectSelectTrigger.addEventListener('click', (e) => {
+					// 入力欄が表示されているときはモーダルを開かない
+					if (!this.els.projectRenameInput.classList.contains('hidden')) return;
+					this.toggleProjectModal(true);
+				});
+			}
 
-            // 2. 鉛筆ボタンクリック -> リネーム開始
-            const startRename = () => {
-                if (!this.els.projectRenameInput) return;
-                this.els.projectRenameInput.classList.remove('hidden');
-                this.els.projectRenameInput.value = this.els.projectName.textContent;
-                this.els.projectRenameInput.focus();
-                this.els.projectRenameInput.select();
-            };
+			// 2. 鉛筆ボタンクリック -> リネーム開始
+			const startRename = () => {
+				if (!this.els.projectRenameInput) return;
+				this.els.projectRenameInput.classList.remove('hidden');
+				this.els.projectRenameInput.value = this.els.projectName.textContent;
+				this.els.projectRenameInput.focus();
+				this.els.projectRenameInput.select();
+			};
 
-            if (this.els.btnRenameProject) {
-                this.els.btnRenameProject.addEventListener('click', (e) => {
-                    e.stopPropagation(); // 親へのバブリング停止
-                    startRename();
-                });
-            }
+			if (this.els.btnRenameProject) {
+				this.els.btnRenameProject.addEventListener('click', (e) => {
+					e.stopPropagation(); // 親へのバブリング停止
+					startRename();
+				});
+			}
 
-            // 3. リネーム確定/キャンセル
-            if (this.els.projectRenameInput) {
-                const finishRename = () => {
-                    const val = this.els.projectRenameInput.value.trim();
-                    if (val) {
-                        this.updateProjectName(val);
-                        document.dispatchEvent(new CustomEvent('project-rename', { detail: val }));
-                    }
-                    this.els.projectRenameInput.classList.add('hidden');
-                };
+			// 3. リネーム確定/キャンセル
+			if (this.els.projectRenameInput) {
+				const finishRename = () => {
+					const val = this.els.projectRenameInput.value.trim();
+					if (val) {
+						this.updateProjectName(val);
+						document.dispatchEvent(new CustomEvent('project-rename', {
+							detail: val
+						}));
+					}
+					this.els.projectRenameInput.classList.add('hidden');
+				};
 
-                this.els.projectRenameInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        finishRename();
-                        this.els.projectRenameInput.blur();
-                    }
-                    if (e.key === 'Escape') {
-                        this.els.projectRenameInput.classList.add('hidden');
-                    }
-                });
+				this.els.projectRenameInput.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') {
+						finishRename();
+						this.els.projectRenameInput.blur();
+					}
+					if (e.key === 'Escape') {
+						this.els.projectRenameInput.classList.add('hidden');
+					}
+				});
 
-                // フォーカスが外れたら確定
-                this.els.projectRenameInput.addEventListener('blur', finishRename);
-            }
+				// フォーカスが外れたら確定
+				this.els.projectRenameInput.addEventListener('blur', finishRename);
+			}
 
 			if (this.els.btnCloseModal) this.els.btnCloseModal.addEventListener('click', () => this.toggleProjectModal(false));
 
