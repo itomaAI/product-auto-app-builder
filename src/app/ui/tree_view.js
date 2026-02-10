@@ -95,66 +95,92 @@
 		}
 
 		_handleDragOver(e, element) {
-			e.preventDefault(); // ドロップ許可
-			e.stopPropagation();
-			e.dataTransfer.dropEffect = 'move';
-			element.classList.add('bg-blue-900', 'text-white'); // ハイライト
+			// 内部移動の場合のみハンドリングする
+			if (e.dataTransfer.types.includes('application/json')) {
+				e.preventDefault(); // ドロップ許可
+				e.stopPropagation();
+				e.dataTransfer.dropEffect = 'move';
+				element.classList.add('bg-blue-900', 'text-white'); // ハイライト
+			}
+			// 外部ファイルの場合は何もしない（親へ任せる）
 		}
 
 		_handleDragLeave(e, element) {
-			e.preventDefault();
-			e.stopPropagation();
-			element.classList.remove('bg-blue-900', 'text-white');
+			// 内部移動の場合のみハンドリングする
+			if (e.dataTransfer.types.includes('application/json')) {
+				e.preventDefault();
+				e.stopPropagation();
+				element.classList.remove('bg-blue-900', 'text-white');
+			}
 		}
 
 		_handleDrop(e, targetNode, element) {
-			e.preventDefault();
-			e.stopPropagation();
 			element.classList.remove('bg-blue-900', 'text-white');
 
-			// 外部ファイルアップロードとの競合回避（JSONデータがない場合は無視）
-			if (!e.dataTransfer.types.includes('application/json')) return;
+			// 内部移動の場合のみ処理し、止める
+			if (e.dataTransfer.types.includes('application/json')) {
+				e.preventDefault();
+				e.stopPropagation();
 
-			const data = JSON.parse(e.dataTransfer.getData('application/json'));
-			const srcPath = data.path;
-			const destFolder = targetNode.path;
+				// JSONデータがない場合は無視
+				const rawData = e.dataTransfer.getData('application/json');
+				if (!rawData) return;
 
-			this._emitMove(srcPath, destFolder);
+				const data = JSON.parse(rawData);
+				const srcPath = data.path;
+				const destFolder = targetNode.path;
+
+				this._emitMove(srcPath, destFolder);
+			}
+			// 外部ファイルの場合はスルーする（親へバブリングさせる）
 		}
 
 		_initRootDropZone() {
 			if (!this.container) return;
 
 			this.container.addEventListener('dragover', (e) => {
-				e.preventDefault();
-				e.stopPropagation(); // ★ 親(Sidebar)へのバブリングを防止
-				e.dataTransfer.dropEffect = 'move'; // 親のcopyを上書き
+				// 内部移動の場合のみ独自スタイルを適用して止める
+				if (e.dataTransfer.types.includes('application/json')) {
+					e.preventDefault();
+					e.stopPropagation(); // 親(Sidebar)へのバブリングを防止
+					e.dataTransfer.dropEffect = 'move'; // 親のcopyを上書き
 
-				// フォルダノード上のイベントは stopPropagation されているため、
-				// ここに到達するイベント＝「ファイルの上」または「余白」＝「ルートへのドロップ」とみなす
-				this.container.classList.add('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+					// フォルダノード上のイベントは stopPropagation されているため、
+					// ここに到達するイベント＝「ファイルの上」または「余白」＝「ルートへのドロップ」とみなす
+					this.container.classList.add('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+				}
+				// 外部ファイルの場合は何もしない
 			});
 
 			this.container.addEventListener('dragleave', (e) => {
-				e.preventDefault();
-				e.stopPropagation(); // ★ 親へのバブリング防止
+				// 内部移動の場合のみハンドリング
+				if (e.dataTransfer.types.includes('application/json')) {
+					e.preventDefault();
+					e.stopPropagation(); // 親へのバブリング防止
 
-				// 子要素（ファイルノードなど）に入っただけなら解除しない
-				if (!this.container.contains(e.relatedTarget)) {
-					this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+					// 子要素（ファイルノードなど）に入っただけなら解除しない
+					if (!this.container.contains(e.relatedTarget)) {
+						this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
+					}
 				}
 			});
 
 			this.container.addEventListener('drop', (e) => {
-				e.preventDefault();
-				e.stopPropagation(); // ★ 親(Sidebar)のアップロード処理発動を防止
+				// 内部移動の場合のみ処理
+				if (e.dataTransfer.types.includes('application/json')) {
+					e.preventDefault();
+					e.stopPropagation(); // 親(Sidebar)のアップロード処理発動を防止
 
-				this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
-				if (!e.dataTransfer.types.includes('application/json')) return;
+					this.container.classList.remove('bg-gray-800', 'ring-2', 'ring-blue-500', 'ring-inset');
 
-				const data = JSON.parse(e.dataTransfer.getData('application/json'));
-				// ルートへ移動
-				this._emitMove(data.path, "");
+					const rawData = e.dataTransfer.getData('application/json');
+					if (!rawData) return;
+
+					const data = JSON.parse(rawData);
+					// ルートへ移動
+					this._emitMove(data.path, "");
+				}
+				// 外部ファイルの場合は何もせず親(Sidebar)へイベントを流す
 			});
 
 			// ドラッグ終了時にスタイルを戻す (これはdocument全体なのでそのまま)
