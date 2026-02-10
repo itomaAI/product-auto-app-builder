@@ -12,26 +12,25 @@
 		/**
 		 * VFSの状態からプレビュー用のエントリーポイントURLを生成
 		 * @param {VirtualFileSystem} vfs 
+		 * @param {string} entryPath - デフォルトのエントリーポイント
 		 * @returns {Promise<string|null>} index.htmlのBlob URL
 		 */
-		async compile(vfs) {
+		async compile(vfs, entryPath = 'index.html') {
 			this.revokeAll(); // メモリリーク防止
 
 			const filePaths = vfs.listFiles();
 			const urlMap = {};
 
-			// 1. Assets (HTML以外) のBlob化
+			// --- Phase 1: Assets (Non-HTML) のBlob化 ---
 			for (const path of filePaths) {
 				if (path.endsWith('.html')) continue;
-				if (path.startsWith('.sample/')) continue;
+				if (this._isIgnored(path)) continue;
 
 				const content = vfs.readFile(path);
 				const mimeType = this.getMimeType(path);
 
-				// 画像データ(Base64)の場合とテキストの場合がある
 				let blob;
 				if (mimeType.startsWith('image/') && content.startsWith('data:')) {
-					// DataURLならそのままfetchしてBlob化（あるいは直接使う手もあるが、URL統一のためBlob化）
 					const res = await fetch(content);
 					blob = await res.blob();
 				} else {
@@ -45,15 +44,19 @@
 				this.blobUrls.push(url);
 			}
 
-			// 2. HTML の処理 (リンク解決 & スクリプト注入)
+			// --- Phase 2: HTML の処理 ---
 			let entryPointUrl = null;
 
 			for (const path of filePaths) {
 				if (!path.endsWith('.html')) continue;
-				if (path.startsWith('.sample/')) continue;
+				if (this._isIgnored(path)) continue;
 
 				let htmlContent = vfs.readFile(path);
-				htmlContent = this.processHtmlReferences(htmlContent, urlMap);
+
+				// 相対パス解決とBlob URLへの置換
+				htmlContent = this.processHtmlReferences(htmlContent, urlMap, path);
+
+				// スクリーンショット撮影用ヘルパーの注入
 				htmlContent = this.injectScreenshotHelper(htmlContent);
 
 				const blob = new Blob([htmlContent], {
@@ -64,30 +67,61 @@
 				urlMap[path] = url;
 				this.blobUrls.push(url);
 
-				if (path === 'index.html') {
+				if (path === entryPath) {
 					entryPointUrl = url;
 				}
 			}
 
-			// index.htmlが無い場合は最初のHTMLを返す
+			// 指定されたエントリポイントが見つからない場合のフォールバック
 			if (!entryPointUrl) {
-				const firstHtml = filePaths.find(p => p.endsWith('.html') && !p.startsWith('.sample/'));
-				if (firstHtml) entryPointUrl = urlMap[firstHtml];
+				if (urlMap['index.html']) {
+					entryPointUrl = urlMap['index.html'];
+				} else {
+					const firstHtml = filePaths.find(p => p.endsWith('.html') && !this._isIgnored(p));
+					if (firstHtml) entryPointUrl = urlMap[firstHtml];
+				}
 			}
 
 			return entryPointUrl;
 		}
 
-		processHtmlReferences(html, urlMap) {
+		/**
+		 * 無視すべきファイルかどうか判定
+		 * 元のコードに合わせて .sample/ のみを除外対象とする
+		 * (src/ などを除外すると、ユーザーが作成したソースコードが読み込めなくなるため)
+		 */
+		_isIgnored(path) {
+			return path.startsWith('.sample/') || path.startsWith('.git/');
+		}
+
+		/**
+		 * HTML内の参照リンクをBlob URLに書き換える
+		 */
+		processHtmlReferences(html, urlMap, currentFilePath) {
 			const parser = new DOMParser();
 			const doc = parser.parseFromString(html, 'text/html');
 
+			// カレントディレクトリの取得
+			const currentDir = currentFilePath.includes('/') ?
+				currentFilePath.substring(0, currentFilePath.lastIndexOf('/')) :
+				'';
+
 			const replaceAttr = (selector, attr) => {
 				doc.querySelectorAll(selector).forEach(el => {
-					const val = el.getAttribute(attr);
-					// 相対パス解決 (簡易版: ファイル名一致のみ)
-					// 本来はディレクトリ解決が必要だが、現状はフラットに近い構造で動作させる
-					if (urlMap[val]) el.setAttribute(attr, urlMap[val]);
+					const originalVal = el.getAttribute(attr);
+					if (!originalVal) return;
+
+					// 1. 完全一致 (元コードのロジック + ルートパス指定)
+					if (urlMap[originalVal]) {
+						el.setAttribute(attr, urlMap[originalVal]);
+						return;
+					}
+
+					// 2. 相対パス解決 (新機能)
+					const resolvedPath = this._resolvePath(currentDir, originalVal);
+					if (resolvedPath && urlMap[resolvedPath]) {
+						el.setAttribute(attr, urlMap[resolvedPath]);
+					}
 				});
 			};
 
@@ -99,8 +133,37 @@
 			return doc.documentElement.outerHTML;
 		}
 
+		/**
+		 * 相対パス解決ロジック
+		 */
+		_resolvePath(baseDir, relativePath) {
+			// プロトコル付きやハッシュリンクは無視
+			if (relativePath.match(/^(https?:|data:|blob:|mailto:|javascript:|#)/)) return null;
+
+			// ルートパス指定 (/css/style.css)
+			if (relativePath.startsWith('/')) {
+				return relativePath.substring(1);
+			}
+
+			// 相対パス計算
+			const stack = baseDir ? baseDir.split('/') : [];
+			const parts = relativePath.split('/');
+
+			for (const part of parts) {
+				if (part === '' || part === '.') continue;
+				if (part === '..') {
+					if (stack.length > 0) stack.pop();
+				} else {
+					stack.push(part);
+				}
+			}
+
+			return stack.join('/');
+		}
+
 		injectScreenshotHelper(html) {
-        const script = `
+			// 元のコードのヘルパー実装を使用
+			const script = `
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
 <script>
 window.addEventListener('message', async (e) => {
@@ -118,11 +181,8 @@ window.addEventListener('message', async (e) => {
                 skipOnError: true,
                 preferredFontFormat: 'woff2',
     
-                // ▼▼▼ 追加: 問題のある要素を除外するフィルタ ▼▼▼
                 filter: (node) => {
-                    // imgタグの場合、src属性を確認
                     if (node.tagName === 'IMG') {
-                        // srcがない、空文字、または現在のページURLと同じ（src=""の挙動）場合は除外
                         if (!node.src || node.src === '' || node.src === window.location.href) {
                             return false;
                         }
@@ -134,18 +194,14 @@ window.addEventListener('message', async (e) => {
             parent.postMessage({ type: 'SCREENSHOT_RESULT', data }, '*');
         } catch (err) {
             console.error('Screenshot failed:', err);
-
-            // エラーの詳細を文字列化して親へ送る
             let msg = 'Unknown Error';
             if (err instanceof Error) {
                 msg = err.message;
             } else if (err.target && err.target.tagName) {
-                // Eventオブジェクトの場合 (画像のロードエラーなど)
                 msg = 'Element load error: ' + err.target.tagName + (err.target.id ? '#' + err.target.id : '');
             } else {
                 msg = String(err);
             }
-
             parent.postMessage({ type: 'SCREENSHOT_ERROR', message: msg }, '*');
         }
     }
@@ -159,14 +215,25 @@ window.addEventListener('message', async (e) => {
 		}
 
 		getMimeType(filename) {
-			if (filename.endsWith('.js')) return 'application/javascript';
-			if (filename.endsWith('.css')) return 'text/css';
-			if (filename.endsWith('.json')) return 'application/json';
-			if (filename.endsWith('.svg')) return 'image/svg+xml';
-			if (filename.endsWith('.png')) return 'image/png';
-			if (filename.endsWith('.jpg')) return 'image/jpeg';
-			if (filename.endsWith('.html')) return 'text/html';
-			return 'text/plain';
+			const ext = filename.split('.').pop().toLowerCase();
+			const map = {
+				'js': 'application/javascript',
+				'css': 'text/css',
+				'html': 'text/html',
+				'json': 'application/json',
+				'svg': 'image/svg+xml',
+				'png': 'image/png',
+				'jpg': 'image/jpeg',
+				'jpeg': 'image/jpeg',
+				'gif': 'image/gif',
+				'webp': 'image/webp',
+				'woff': 'font/woff',
+				'woff2': 'font/woff2',
+				'ttf': 'font/ttf',
+				'mp3': 'audio/mpeg',
+				'mp4': 'video/mp4'
+			};
+			return map[ext] || 'text/plain';
 		}
 
 		revokeAll() {
