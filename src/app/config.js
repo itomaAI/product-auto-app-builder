@@ -160,13 +160,21 @@ Content:
 Modifies a file.
 Attributes:
     - path: Target file path.
-Content:
-    **OPTION 1: Regex Replacement (RECOMMENDED)**
-    Use strict markers to define the search pattern and replacement string.
+    - use_regex (optional): "true" to enable Regex matching. **Default is "false" (String Literal Search).**
 
-    Constraint:
-    - **You MUST provide only ONE replacement block per <edit_file> tag.**
-    - If you need to modify multiple locations, use multiple <edit_file> tags.
+Content:
+    **OPTION 1: String Literal Search (DEFAULT, Recommended)**
+    Use this for exact text replacement. No need to escape special characters.
+    
+    Format:
+    <<<<SEARCH
+    (Text to find - Exact Match)
+    ====
+    (Replacement text)
+    >>>>
+
+    **OPTION 2: Regex Replacement (Requires use_regex="true")**
+    Use this ONLY when you need pattern matching. You MUST escape regex special characters in the search block.
 
     Format:
     <<<<SEARCH
@@ -175,10 +183,8 @@ Content:
     (Replacement)
     >>>>
 
-    **OPTION 2: Line-based Editing (Use ONLY for appending or creating structure)**
+    **OPTION 3: Line-based Editing**
     Attributes required: mode="replace"|"insert"|"delete", start, end.
-    - mode="insert": Inserts content BEFORE the line specified in 'start'.
-    - mode="replace": Overwrites lines from 'start' to 'end'.
 </define_tag>
 
 <define_tag name="read_file">

@@ -4,10 +4,15 @@
 	global.App = global.App || {};
 	global.App.Tools = global.App.Tools || {};
 
+	// Helper to escape regex special characters for literal search
+	function escapeRegExp(string) {
+		return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	}
+
 	global.App.Tools.registerFSTools = function(registry, vfs) {
 
 		registry.register('read_file', async (params, state) => {
-            const BINARY_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg)$/i;
+			const BINARY_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|pdf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg)$/i;
 			const isBinary = params.path.match(BINARY_EXTS);
 			const content = vfs.readFile(params.path);
 
@@ -15,9 +20,9 @@
 				let base64 = content;
 				let mimeType = 'application/octet-stream';
 
-                if (params.path.match(/\.pdf$/i)) mimeType = 'application/pdf';
-                else if (params.path.match(/\.zip$/i)) mimeType = 'application/zip';
-                else if (params.path.match(/\.(mp4|webm)$/i)) mimeType = 'video/mp4';
+				if (params.path.match(/\.pdf$/i)) mimeType = 'application/pdf';
+				else if (params.path.match(/\.zip$/i)) mimeType = 'application/zip';
+				else if (params.path.match(/\.(mp4|webm)$/i)) mimeType = 'video/mp4';
 
 				if (content.startsWith('data:')) {
 					const parts = content.split(',');
@@ -33,7 +38,7 @@
 				return {
 					log: `[read_file] Read binary file: ${params.path} (${mimeType})`,
 					ui: `📦 Read Binary ${params.path}`,
-					image: base64, 
+					image: base64,
 					mimeType: mimeType
 				};
 			}
@@ -66,6 +71,8 @@
 		// --- edit_file ---
 		registry.register('edit_file', async (params, state) => {
 			const content = params.content || "";
+			// Check if regex is explicitly enabled
+			const useRegex = params.use_regex === 'true';
 
 			// マーカー定義
 			const MARKER_SEARCH = "<<<<SEARCH";
@@ -79,7 +86,7 @@
 				);
 			}
 
-			// Regex Replacement Mode
+			// Block Replacement Mode (Search & Replace)
 			if (content.includes(MARKER_SEARCH) && content.includes(MARKER_DIVIDER) && content.includes(MARKER_END)) {
 
 				const searchStart = content.indexOf(MARKER_SEARCH) + MARKER_SEARCH.length;
@@ -94,35 +101,26 @@
 				let patternStr = content.substring(searchStart, divStart);
 				let replaceStr = content.substring(divEnd, blockEnd);
 
-				// 改行トリム
+				// 改行トリム (プロンプトの都合で入る余計な改行を除去)
 				if (patternStr.startsWith('\n')) patternStr = patternStr.substring(1);
 				if (patternStr.endsWith('\n')) patternStr = patternStr.substring(0, patternStr.length - 1);
 
 				if (replaceStr.startsWith('\n')) replaceStr = replaceStr.substring(1);
 				if (replaceStr.endsWith('\n')) replaceStr = replaceStr.substring(0, replaceStr.length - 1);
 
-				// 【ここが修正ポイント】
-				// VFSに渡す前に、patternStr が「リテラル文字列」としてファイル内に存在するか確認する
-				try {
-					if (vfs.exists(params.path)) {
-						const currentFileContent = vfs.readFile(params.path);
-
-						// もし patternStr がそのままの文字列としてファイル内に見つかった場合、
-						// LLMは正規表現ではなく「コードそのもの」を送ってきている。
-						// そのため、正規表現の特殊文字をエスケープしてあげる。
-						if (currentFileContent.includes(patternStr)) {
-							// Regex特殊文字をエスケープ (\, ., *, +, ?, ^, $, {, }, (, ), |, [, ])
-							patternStr = patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-						}
-					}
-				} catch (e) {
-					// 読み込みエラー等は無視（VFS側で再度エラー処理されるので）
+				// ★ 変更点: 正規表現モードでない場合はエスケープする
+				if (!useRegex) {
+					// リテラル検索として扱うため、正規表現の特殊文字を全てエスケープする
+					patternStr = escapeRegExp(patternStr);
 				}
 
+				// VFSのreplaceContentは RegExp(patternStr) を使う仕様なので、
+				// リテラル検索の場合はエスケープ済みの文字列を渡すことで完全一致検索となる。
 				const msg = vfs.replaceContent(params.path, patternStr, replaceStr);
+
 				return {
 					log: `[edit_file] ${msg}`,
-					ui: `✏️ Regex Replace in ${params.path}`
+					ui: `✏️ ${useRegex ? 'Regex' : 'Text'} Replace in ${params.path}`
 				};
 			}
 
