@@ -160,6 +160,9 @@
 			const currentDir = srcPath.substring(0, srcPath.lastIndexOf('/'));
 			if (currentDir === destFolder) return;
 
+			// 同じ場所への移動は無視
+			if (destFolder === srcPath) return;
+
 			// 親フォルダを自分のサブフォルダに移動しようとしていないかチェック
 			if (destFolder.startsWith(srcPath + '/')) {
 				alert("Cannot move a folder into its own subfolder.");
