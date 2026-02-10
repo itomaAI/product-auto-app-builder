@@ -42,6 +42,15 @@
 			this.events[event] = callback;
 		}
 
+		// --- ★ NEW: 共通除外ロジック ---
+		_shouldIgnore(path) {
+			// .git フォルダ、.DS_Store、node_modules を無視
+			if (path.startsWith('.git/') || path.includes('/.git/')) return true;
+			if (path === '.DS_Store' || path.endsWith('/.DS_Store')) return true;
+			if (path.startsWith('node_modules/') || path.includes('/node_modules/')) return true;
+			return false;
+		}
+
 		_bindVFS() {
 			this.vfs.subscribe(() => {
 				const treeData = this.vfs.getTree();
@@ -186,8 +195,9 @@
 							relPath = file.name;
 						}
 
-						if (relPath.startsWith('.git/') || relPath.includes('/.git/') || relPath === '.DS_Store') continue;
-						if (!relPath) continue;
+						// ★ 修正: 共通除外ロジックを使用
+						const normalizedPath = relPath.replace(/^\/+/, '');
+						if (!normalizedPath || this._shouldIgnore(normalizedPath)) continue;
 
 						let content;
 						try {
@@ -197,7 +207,6 @@
 								content = await file.text();
 							}
 
-							const normalizedPath = relPath.replace(/^\/+/, '');
 							this.vfs.files[normalizedPath] = content;
 							uploadedPaths.push(normalizedPath);
 						} catch (err) {
@@ -263,6 +272,12 @@
 						resolve([file]);
 					});
 				} else if (item.isDirectory) {
+					// ★ 修正: ディレクトリ単位で .git / node_modules ならこれ以上掘り下げない最適化
+					if (item.name === '.git' || item.name === 'node_modules') {
+						resolve([]);
+						return;
+					}
+
 					const dirReader = item.createReader();
 					const entries = [];
 
@@ -291,7 +306,8 @@
 				let relPath = file.fullPath || file.name;
 				relPath = relPath.replace(/^\/+/, '');
 
-				if (relPath.startsWith('.git/') || relPath.includes('/.git/') || relPath === '.DS_Store') continue;
+				// ★ 修正: 共通除外ロジックを使用
+				if (this._shouldIgnore(relPath)) continue;
 
 				let content;
 				try {
@@ -324,6 +340,9 @@
 				if (targetDir) relPath = `${targetDir}/${file.name}`;
 				else if (isFolder && file.webkitRelativePath) relPath = file.webkitRelativePath;
 				relPath = relPath.replace(/^\/+/, '');
+
+				// ★ 修正: 共通除外ロジックを追加 (これでボタンからのアップロードも除外対応)
+				if (this._shouldIgnore(relPath)) continue;
 
 				let content;
 				if (this._isBinary(file)) content = await this._fileToBase64(file);
