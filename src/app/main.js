@@ -306,7 +306,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 		});
 		const a = document.createElement('a');
 		a.href = URL.createObjectURL(blob);
-		a.download = `${currentProjectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`;
+
+		// 禁止文字: \ / : * ? " < > | 
+		const safeName = currentProjectName.replace(/[/\\?%*:|"<>]/g, '_');
+		a.download = `${safeName}.zip`;
+
 		a.click();
 	};
 

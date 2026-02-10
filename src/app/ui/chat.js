@@ -69,15 +69,50 @@
 				};
 			}
 
-			// File Upload
+			// File Upload (Button)
 			if (this.els.chatFileUpload) {
 				this.els.chatFileUpload.onchange = (e) => {
 					Array.from(e.target.files).forEach(f => {
 						this.pendingUploads.push(f);
-						this.renderUploadPreview(f);
 					});
+					this._refreshPreviews(); // リスト更新
 					e.target.value = "";
 				};
+			}
+
+			// ★ 追加: File Upload (Drag & Drop to Chat Input)
+			const dropZone = this.els.chatInput ? this.els.chatInput.parentElement : null;
+			if (dropZone) {
+				// デフォルト動作の無効化
+				['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+					dropZone.addEventListener(eventName, (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+					}, false);
+				});
+
+				// ハイライト表示
+				dropZone.addEventListener('dragover', () => {
+					dropZone.classList.add('ring-2', 'ring-blue-500', 'bg-gray-800');
+				});
+
+				// ハイライト解除
+				['dragleave', 'drop'].forEach(eventName => {
+					dropZone.addEventListener(eventName, () => {
+						dropZone.classList.remove('ring-2', 'ring-blue-500', 'bg-gray-800');
+					});
+				});
+
+				// ドロップ処理
+				dropZone.addEventListener('drop', (e) => {
+					const files = e.dataTransfer.files;
+					if (files.length > 0) {
+						Array.from(files).forEach(f => {
+							this.pendingUploads.push(f);
+						});
+						this._refreshPreviews(); // リスト更新
+					}
+				});
 			}
 		}
 
@@ -272,9 +307,9 @@
 				img.src = `data:${mime};base64,${base64}`;
 				img.className = "h-24 rounded border border-gray-600 cursor-pointer hover:opacity-80 bg-gray-900 mt-2 object-contain";
 				img.onclick = () => {
-                    if (this.events['preview_request']) {
-                        this.events['preview_request']('Image Preview', base64, mime);
-                    }
+					if (this.events['preview_request']) {
+						this.events['preview_request']('Image Preview', base64, mime);
+					}
 				};
 				container.appendChild(img);
 			} else {
@@ -300,23 +335,53 @@
 				`;
 
 				div.onclick = () => {
-                    if (this.events['preview_request']) {
-                        const ext = mime.split('/')[1] || 'file';
-                        this.events['preview_request'](`Attachment.${ext}`, base64, mime);
-                    }
+					if (this.events['preview_request']) {
+						const ext = mime.split('/')[1] || 'file';
+						this.events['preview_request'](`Attachment.${ext}`, base64, mime);
+					}
 				};
 
 				container.appendChild(div);
 			}
 		}
 
-		renderUploadPreview(file) {
+		// ★ 変更: プレビューエリアの一括更新（削除機能付き）
+		_refreshPreviews() {
 			if (!this.els.filePreviewArea) return;
+			this.els.filePreviewArea.innerHTML = "";
+
+			if (this.pendingUploads.length === 0) {
+				this.els.filePreviewArea.classList.add('hidden');
+				return;
+			}
+
 			this.els.filePreviewArea.classList.remove('hidden');
-			const div = document.createElement('div');
-			div.className = "bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs flex items-center gap-2 text-gray-300 animate-fade-in";
-			div.innerHTML = `<span>📎 ${file.name}</span>`;
-			this.els.filePreviewArea.appendChild(div);
+
+			this.pendingUploads.forEach((file, index) => {
+				const div = document.createElement('div');
+				div.className = "bg-gray-800 border border-gray-600 rounded pl-2 pr-1 py-1 text-xs flex items-center gap-2 text-gray-300 animate-fade-in select-none group";
+
+				// ファイル名
+				const span = document.createElement('span');
+				span.className = "truncate max-w-[150px]";
+				span.textContent = `📎 ${file.name}`;
+				span.title = file.name;
+				div.appendChild(span);
+
+				// 削除ボタン
+				const btn = document.createElement('button');
+				btn.className = "text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded px-1 transition cursor-pointer flex items-center justify-center w-5 h-5 ml-1";
+				btn.innerHTML = "×";
+				btn.title = "Remove file";
+				btn.onclick = (e) => {
+					e.stopPropagation();
+					this.pendingUploads.splice(index, 1);
+					this._refreshPreviews(); // 再描画
+				};
+				div.appendChild(btn);
+
+				this.els.filePreviewArea.appendChild(div);
+			});
 		}
 
 		clearUploadPreviews() {
