@@ -38,12 +38,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 	const projector = new MetaForgeProjector(Config.SYSTEM_PROMPT);
 
 	// --- 2. Initialize Model (Domain) ---
-	// Start with empty, will be populated by loadProject
 	const vfs = new VirtualFileSystem({});
 	const state = new WorldState(vfs);
 
 	// --- 3. Initialize UI (View & Controllers) ---
-	// Inject VFS and State here. UI components can now bind to them directly.
 	const ui = new UIController(vfs, state, compiler);
 
 	// --- 4. Initialize Tools ---
@@ -52,8 +50,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 	App.Tools.registerNavTools(registry, vfs);
 	App.Tools.registerUITools(registry, ui);
 
+	// ★ 追加: 検索ツールの登録
+	if (App.Tools.registerSearchTools) {
+		App.Tools.registerSearchTools(registry, vfs);
+	}
+
 	// --- 5. Initialize Engine (Logic) ---
-	// LLM Init
 	let apiKey = localStorage.getItem('metaforge_api_key') || '';
 	if (apiKey && document.getElementById(DOM.apiKey)) {
 		document.getElementById(DOM.apiKey).value = apiKey;
@@ -87,15 +89,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 		currentProjectName = project.name;
 
 		// VFS Restore
-		// Replace content of existing VFS instance so bindings remain valid
-		// Clear existing
 		Object.keys(vfs.files).forEach(k => delete vfs.files[k]);
-		// Set new
 		Object.assign(vfs.files, project.files);
 		vfs.notify();
 
 		// History Restore
-		// Replace history in state
 		state.history = project.chatHistory || [];
 
 		// UI Update
@@ -123,6 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
 		ui.setSaveStatus('saving');
 
+		// プロジェクトの上書き保存のみ実行 (定時スナップショットは行わない)
 		saveDebounceTimer = setTimeout(async () => {
 			if (!currentProjectId) return;
 			await storage.saveProject(
@@ -138,7 +137,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	// --- 8. Event Wiring ---
 
-	// Engine -> UI (Streaming)
 	engine.on('turn_start', (data) => {
 		if (data.role === REAL.Role.MODEL) {
 			ui.chat.setProcessing(true);
@@ -154,7 +152,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 		if (data.role === REAL.Role.MODEL) {
 			ui.chat.finalizeStreaming();
 		} else {
-			// System/User turns re-render
 			ui.chat.renderHistory(state.getHistory());
 		}
 		triggerAutoSave();
@@ -193,20 +190,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 	});
 	document.addEventListener('project-delete', async (e) => {
 		const id = e.detail;
-
-		// 1. 削除実行
 		await storage.deleteProject(id);
-
-		// 2. プロジェクトリスト更新
 		const projects = await storage.getAllProjectsMetadata();
 		ui.renderProjectList(projects);
 
-		// 3. 開いていたプロジェクトを削除した場合の移動処理
 		if (id === currentProjectId) {
 			if (projects.length > 0) {
 				const nextId = projects[0].id;
 				const nextProject = await storage.getProject(nextId);
-
 				if (nextProject) {
 					loadProjectData(nextProject);
 					await storage.setLastProjectId(nextId);
@@ -219,7 +210,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	});
 
-	// New Project Button
 	const btnNew = document.getElementById(DOM.btnNewProject);
 	if (btnNew) btnNew.onclick = async () => {
 		if (confirm("Create new project?")) await createNewProject();
@@ -257,7 +247,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 			}
 		}
 
-		engine.llm = createLLM(); // Refresh Key
+		engine.llm = createLLM();
 
 		try {
 			await engine.injectUserTurn(content);
@@ -281,7 +271,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	});
 
-	// Download ZIP
 	const btnDownload = document.getElementById(DOM.btnDownload);
 	if (btnDownload) btnDownload.onclick = async () => {
 		if (typeof JSZip === 'undefined') {
@@ -306,15 +295,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 		});
 		const a = document.createElement('a');
 		a.href = URL.createObjectURL(blob);
-
-		// 禁止文字: \ / : * ? " < > | 
 		const safeName = currentProjectName.replace(/[/\\?%*:|"<>]/g, '_');
 		a.download = `${safeName}.zip`;
-
 		a.click();
 	};
 
-	// API Key Save
 	const btnSaveKey = document.getElementById(DOM.btnSaveKey);
 	if (btnSaveKey) btnSaveKey.onclick = () => {
 		apiKey = document.getElementById(DOM.apiKey).value.trim();
@@ -322,13 +307,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 		alert('API Key Saved');
 	};
 
-	// Manual Refresh
 	const btnRefresh = document.getElementById(DOM.btnRefresh);
 	if (btnRefresh) btnRefresh.onclick = () => ui.refreshPreview();
 
 
 	// --- 9. Boot Sequence ---
-	console.log("MetaForge v2.3 (REAL+DI) Booting...");
+	console.log("MetaForge v2.4 (REAL+DI) Booting...");
 	try {
 		const lastId = await storage.getLastProjectId();
 		if (lastId) {
@@ -343,7 +327,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	} catch (e) {
 		console.error("Boot Error:", e);
-		// Fallback
 		Object.assign(vfs.files, Config.DEFAULT_FILES);
 		vfs.notify();
 		ui.refreshPreview();

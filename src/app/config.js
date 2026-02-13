@@ -220,6 +220,19 @@ Attributes:
     - new_path: Destination path.
 </define_tag>
 
+<define_tag name="search">
+Searches for files containing specific text or pattern.
+Useful for finding code definitions or specific strings across multiple files.
+Attributes:
+    - query: The text or regex pattern to search for.
+    - path (optional): The directory to start searching from. Defaults to root.
+    - include (optional): Comma-separated list of file extensions to search (e.g., ".js,.html").
+    - context (optional): Number of lines to show before and after the match (default: 2).
+    - regex (optional): "true" or "false" (default).
+Notes:
+    - The system will pause execution to avoid freezing the browser during large searches.
+</define_tag>
+
 <define_tag name="list_files">
 Lists all files in the Virtual File System.
 </define_tag>
