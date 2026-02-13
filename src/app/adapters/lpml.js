@@ -163,7 +163,7 @@
 		constructor() {
 			super();
 			// 中身をパースせずテキストとして扱うタグ
-			this.excludeTags = ['create_file', 'edit_file', 'ask', 'think'];
+			this.excludeTags = ['create_file', 'edit_file', 'ask', 'thinking', 'plan'];
 		}
 
 		parse(text) {
