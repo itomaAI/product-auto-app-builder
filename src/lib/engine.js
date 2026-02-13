@@ -66,15 +66,31 @@
 
 			const Signal = global.REAL.Signal;
 			let currentSignal = Signal.CONTINUE;
+			let loopCount = 0;
+			const MAX_LOOPS = 1000;
+
+			// 前のターンでエラーが発生したかを追跡するフラグ
+			let lastTurnHadError = false;
 
 			try {
 				// --- THE LOOP ---
 				while (currentSignal === Signal.CONTINUE) {
 
-					// 1. Context Projection (Ω -> Prompt)
+					// 1. 無限ループ防止チェック
+					if (loopCount >= MAX_LOOPS) {
+						console.warn(`Max autonomous loops (${MAX_LOOPS}) reached.`);
+						this.state.appendTurn(global.REAL.Role.SYSTEM, `System Alert: Maximum autonomous turn limit (${MAX_LOOPS}) reached. Stopping execution.`, {
+							type: global.REAL.TurnType.ERROR
+						});
+						currentSignal = Signal.HALT;
+						break;
+					}
+					loopCount++;
+
+					// 2. Context Projection (Ω -> Prompt)
 					const messages = this.projector.createContext(this.state);
 
-					// 2. Generation (Prompt -> RawText)
+					// 3. Generation (Prompt -> RawText)
 					this._emit('turn_start', {
 						role: global.REAL.Role.MODEL
 					});
@@ -90,23 +106,49 @@
 						type: global.REAL.TurnType.MODEL_THOUGHT
 					});
 
-					// 3. Interpretation (RawText -> Actions)
+					// 4. Interpretation (RawText -> Actions)
 					const actions = this.parser.parse(rawResponse);
 
-					// アクションが無い場合 -> ループ終了(思考のみ)とするか、CONTINUEするか
-					// ここでは「ツール呼び出しがない＝発話終了」として HALT (Wait User) に倒すのが一般的
+					// アクションが無い場合の判定ロジック
 					if (actions.length === 0) {
-						currentSignal = Signal.HALT;
-						break;
+						if (lastTurnHadError) {
+							// 前のターンでエラーだったのに、今回何もアクションしなかった場合
+							// システム側から叱咤してループを強制継続させる
+							const retryMsg = "System: The previous tool execution failed. You MUST retry with a corrected action or fix the error. Do not finish without resolving the issue.";
+
+							this.state.appendTurn(global.REAL.Role.SYSTEM, retryMsg, {
+								type: global.REAL.TurnType.ERROR
+							});
+
+							// UIに反映させるためイベント発火
+							this._emit('turn_end', {
+								role: global.REAL.Role.SYSTEM,
+								results: [{
+									actionType: 'system_retry',
+									output: {
+										ui: "⚠️ Retry Requested: Action required to fix error."
+									}
+								}]
+							});
+
+							// フラグをリセットして再試行
+							lastTurnHadError = false;
+							continue;
+						} else {
+							// 通常終了 (Wait User)
+							currentSignal = Signal.HALT;
+							break;
+						}
 					}
 
-					// 4. Execution (Actions -> Ω', Results, Signal)
+					// 5. Execution (Actions -> Ω', Results, Signal)
 					this._emit('turn_start', {
 						role: global.REAL.Role.SYSTEM
 					});
 
 					const results = [];
 					let dominantSignal = Signal.CONTINUE; // 最も強いシグナルを優先
+					let hasError = false; // 今回のターンのエラー判定
 
 					for (const action of actions) {
 						// ツールの実行
@@ -115,11 +157,15 @@
 							signal
 						} = await this.tools.execute(action, this.state);
 
-						// 結果を蓄積 (Tool Output)
 						results.push({
 							actionType: action.type,
 							output: result
 						});
+
+						// エラー判定: Registryが error: true を返しているかチェック
+						if (result && result.error) {
+							hasError = true;
+						}
 
 						// シグナル優先度処理: TERMINATE > HALT > CONTINUE
 						if (signal === Signal.TERMINATE) {
@@ -128,6 +174,22 @@
 							dominantSignal = Signal.HALT;
 						}
 					}
+
+					// エラー発生時のFinishキャンセル (Finish無視ロジック)
+					// エラーがあるのに終了しようとした場合、強制的にCONTINUEにする
+					if (hasError && dominantSignal === Signal.TERMINATE) {
+						dominantSignal = Signal.CONTINUE;
+						results.push({
+							actionType: 'system_override',
+							output: {
+								log: "System Notice: <finish> signal was IGNORED because a tool execution failed. You must verify the error and retry.",
+								ui: "🚫 Finish Cancelled: Error detected."
+							}
+						});
+					}
+
+					// 次のループ判定のためにエラー状態を保存
+					lastTurnHadError = hasError;
 
 					// History Update (System Output / Tool Logs)
 					this.state.appendTurn(global.REAL.Role.SYSTEM, results, {

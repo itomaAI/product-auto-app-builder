@@ -34,7 +34,7 @@
 		}
 
 		_bindEvents() {
-			// Send
+			// Send Logic
 			const handleSend = () => {
 				const text = this.els.chatInput.value.trim();
 				if (!text && this.pendingUploads.length === 0) return;
@@ -49,70 +49,97 @@
 			};
 
 			if (this.els.btnSend) this.els.btnSend.onclick = handleSend;
+
 			if (this.els.chatInput) {
+				// Ctrl+Enter to Send
 				this.els.chatInput.onkeydown = (e) => {
 					if (e.ctrlKey && e.key === 'Enter') handleSend();
 				};
+
+				// ★ Paste Image (Ctrl+V) Support
+				this.els.chatInput.addEventListener('paste', (e) => {
+					const items = (e.clipboardData || window.clipboardData).items;
+					let fileFound = false;
+
+					for (let i = 0; i < items.length; i++) {
+						const item = items[i];
+						if (item.kind === 'file') {
+							const file = item.getAsFile();
+							if (file) {
+								// Rename file with timestamp to avoid duplicates/generic names
+								const ext = file.name ? file.name.split('.').pop() : 'png';
+								const safeExt = (ext === 'blob' || !ext) ? 'png' : ext;
+								const newName = `pasted_${Date.now()}.${safeExt}`;
+
+								const newFile = new File([file], newName, {
+									type: file.type
+								});
+								this.pendingUploads.push(newFile);
+								fileFound = true;
+							}
+						}
+					}
+
+					if (fileFound) {
+						this._refreshPreviews();
+					}
+				});
+
+				// Drag & Drop to Chat Input Area
+				const dropZone = this.els.chatInput.parentElement;
+				if (dropZone) {
+					['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+						dropZone.addEventListener(eventName, (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+						}, false);
+					});
+
+					dropZone.addEventListener('dragover', () => {
+						dropZone.classList.add('ring-2', 'ring-blue-500', 'bg-gray-800');
+					});
+
+					['dragleave', 'drop'].forEach(eventName => {
+						dropZone.addEventListener(eventName, () => {
+							dropZone.classList.remove('ring-2', 'ring-blue-500', 'bg-gray-800');
+						});
+					});
+
+					dropZone.addEventListener('drop', (e) => {
+						const files = e.dataTransfer.files;
+						if (files.length > 0) {
+							Array.from(files).forEach(f => {
+								this.pendingUploads.push(f);
+							});
+							this._refreshPreviews();
+						}
+					});
+				}
 			}
 
-			// Stop
+			// Stop Generation
 			if (this.els.btnStop) {
 				this.els.btnStop.onclick = () => {
 					if (this.events['stop']) this.events['stop']();
 				};
 			}
 
-			// Clear
+			// Clear Chat
 			if (this.els.btnClear) {
 				this.els.btnClear.onclick = () => {
 					if (this.events['clear']) this.events['clear']();
 				};
 			}
 
-			// File Upload (Button)
+			// File Upload Button (Clip icon)
 			if (this.els.chatFileUpload) {
 				this.els.chatFileUpload.onchange = (e) => {
 					Array.from(e.target.files).forEach(f => {
 						this.pendingUploads.push(f);
 					});
-					this._refreshPreviews(); // リスト更新
+					this._refreshPreviews();
 					e.target.value = "";
 				};
-			}
-
-			// ★ 追加: File Upload (Drag & Drop to Chat Input)
-			const dropZone = this.els.chatInput ? this.els.chatInput.parentElement : null;
-			if (dropZone) {
-				// デフォルト動作の無効化
-				['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-					dropZone.addEventListener(eventName, (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-					}, false);
-				});
-
-				// ハイライト表示
-				dropZone.addEventListener('dragover', () => {
-					dropZone.classList.add('ring-2', 'ring-blue-500', 'bg-gray-800');
-				});
-
-				// ハイライト解除
-				['dragleave', 'drop'].forEach(eventName => {
-					dropZone.addEventListener(eventName, () => {
-						dropZone.classList.remove('ring-2', 'ring-blue-500', 'bg-gray-800');
-					});
-				});
-
-				// ドロップ処理
-				dropZone.addEventListener('drop', (e) => {
-					const files = e.dataTransfer.files;
-					if (files.length > 0) {
-						Array.from(files).forEach(f => {
-							this.pendingUploads.push(f);
-						});
-						this._refreshPreviews(); // リスト更新
-					}
-				});
 			}
 		}
 
@@ -146,14 +173,15 @@
 			const move = (e) => {
 				if (!isResizing) return;
 				const w = document.body.clientWidth - e.clientX;
+				// Minimum 300px, Max 800px constraint
 				if (w > 300 && w < 800) panel.style.width = `${w}px`;
 				e.preventDefault();
 			};
 
 			resizer.onmousedown = start;
-			document.onmousemove = move;
-			document.onmouseup = stop;
-			window.onblur = stop;
+			document.addEventListener('mousemove', move);
+			document.addEventListener('mouseup', stop);
+			window.addEventListener('blur', stop);
 		}
 
 		// --- Public UI Methods ---
@@ -206,6 +234,7 @@
 		scrollToBottom(force = false) {
 			const el = this.els.chatHistory;
 			if (!el) return;
+			// Scroll if user is near bottom or force is true
 			const threshold = 100;
 			const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + threshold;
 			if (force || isAtBottom) {
@@ -237,7 +266,6 @@
 			div.appendChild(header);
 
 			const body = document.createElement('div');
-			// Model messages handle whitespace inside LPML formatter
 			const isFormatted = role === 'model' || (role === 'system' && typeof content === 'string' && content.includes('<event'));
 			body.className = isFormatted ? "break-all" : "whitespace-pre-wrap break-all";
 
@@ -251,7 +279,6 @@
 				content.forEach(item => {
 					if (item.text) {
 						const p = document.createElement('div');
-						// Hack: Check if text looks like LPML (for system events or structured logs)
 						if (item.text.trim().startsWith('<')) p.innerHTML = this._formatLPML(item.text);
 						else p.textContent = item.text;
 						body.appendChild(p);
@@ -260,7 +287,6 @@
 						p.className = "mb-1";
 						const uiText = item.output.ui || item.output.log || "";
 
-						// 【修正】HTML文字列ではなくtextContentを使用してタグ消失を防ぐ
 						if (item.output.ui) {
 							const span = document.createElement('span');
 							span.className = "text-blue-300 font-bold";
@@ -272,12 +298,10 @@
 
 						body.appendChild(p);
 
-						// 【修正】画像以外のメディアもハンドリング
 						if (item.output.image) {
 							this._appendMedia(body, item.output.image, item.output.mimeType);
 						}
 					} else if (item.inlineData) {
-						// 【修正】画像以外のメディアもハンドリング
 						this._appendMedia(body, item.inlineData.data, item.inlineData.mimeType);
 					}
 				});
@@ -286,16 +310,12 @@
 			this.els.chatHistory.appendChild(div);
 		}
 
-		// 【新設】メディアの種類に応じて表示を切り替えるメソッド
 		_appendMedia(container, base64, mimeType) {
-			// デフォルトは画像として扱う (screenshot等でmimeTypeがない場合)
 			let mime = mimeType;
 			if (!mime) {
-				// Base64ヘッダがあればそこから取得
 				const match = base64.match(/^data:(.*?);base64,/);
 				if (match) {
 					mime = match[1];
-					// ヘッダ付きBase64の場合は本文だけ抽出
 					base64 = base64.split(',')[1];
 				} else {
 					mime = 'image/png';
@@ -313,7 +333,6 @@
 				};
 				container.appendChild(img);
 			} else {
-				// 画像以外 (PDF, ZIP, Textなど)
 				const div = document.createElement('div');
 				div.className = "flex items-center gap-3 p-3 mt-2 rounded border border-gray-600 bg-gray-800 max-w-xs hover:bg-gray-700 transition select-none cursor-pointer";
 
@@ -327,12 +346,12 @@
 				const ext = mime.split('/')[1] || 'FILE';
 
 				div.innerHTML = `
-					<div class="text-2xl">${icon}</div>
-					<div class="flex flex-col overflow-hidden">
-						<span class="text-xs text-gray-300 font-bold font-mono uppercase truncate">${ext}</span>
-						<span class="text-[10px] text-gray-500 truncate">BINARY DATA</span>
-					</div>
-				`;
+                    <div class="text-2xl">${icon}</div>
+                    <div class="flex flex-col overflow-hidden">
+                        <span class="text-xs text-gray-300 font-bold font-mono uppercase truncate">${ext}</span>
+                        <span class="text-[10px] text-gray-500 truncate">BINARY DATA</span>
+                    </div>
+                `;
 
 				div.onclick = () => {
 					if (this.events['preview_request']) {
@@ -345,7 +364,6 @@
 			}
 		}
 
-		// ★ 変更: プレビューエリアの一括更新（削除機能付き）
 		_refreshPreviews() {
 			if (!this.els.filePreviewArea) return;
 			this.els.filePreviewArea.innerHTML = "";
@@ -361,14 +379,12 @@
 				const div = document.createElement('div');
 				div.className = "bg-gray-800 border border-gray-600 rounded pl-2 pr-1 py-1 text-xs flex items-center gap-2 text-gray-300 animate-fade-in select-none group";
 
-				// ファイル名
 				const span = document.createElement('span');
 				span.className = "truncate max-w-[150px]";
 				span.textContent = `📎 ${file.name}`;
 				span.title = file.name;
 				div.appendChild(span);
 
-				// 削除ボタン
 				const btn = document.createElement('button');
 				btn.className = "text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded px-1 transition cursor-pointer flex items-center justify-center w-5 h-5 ml-1";
 				btn.innerHTML = "×";
@@ -397,7 +413,6 @@
 				return div.innerHTML;
 			};
 
-			// 【修正】ホワイトリスト廃止・汎用タグパターンマッチ
 			const TAG_NAME_PATTERN = '[a-zA-Z0-9_\\-]+';
 			const TAG_REGEX = new RegExp(
 				`&lt;(${TAG_NAME_PATTERN})([^&]*)&gt;([\\s\\S]*?)&lt;\\/\\1&gt;|` +
@@ -455,7 +470,6 @@
 				title = `🔧 ${tagName}`;
 				colorClass = "border-gray-600 bg-gray-800";
 			} else {
-				// 【修正】未知のタグのフォールバック
 				title = `⚙️ ${tagName}`;
 				colorClass = "border-gray-600 bg-gray-700/50";
 			}
@@ -465,7 +479,6 @@
 			if (attributes.trim()) displayContent = `<div class="text-[10px] text-gray-500 mb-1 border-b border-gray-700 pb-1">Attrs: ${attributes.trim()}</div>${displayContent}`;
 
 			if (!displayContent) {
-				// 自己終了タグ等の表示
 				return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block opacity-80" title="Tool Call">&lt;${tagName}${attributes} /&gt;</div>`;
 			}
 

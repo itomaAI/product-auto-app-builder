@@ -29,11 +29,14 @@
 
 			this._bindProjectUI();
 			this._wireComponents();
+			this._bindMobileUI(); // ★ モバイルUI制御の初期化
 		}
 
 		_initElements() {
 			['projectSelectTrigger', 'projectRenameInput', 'projectName', 'btnRenameProject',
-				'projectModal', 'btnCloseModal', 'projectList', 'previewFrame', 'previewLoader'
+				'projectModal', 'btnCloseModal', 'projectList', 'previewFrame', 'previewLoader',
+				// Mobile elements
+				'sidebar', 'chatPanel', 'mobileOverlay', 'mobileNavFiles', 'mobileNavView', 'mobileNavChat'
 			]
 			.forEach(key => {
 				const id = DOM[key];
@@ -53,6 +56,7 @@
 					this.mediaViewer.close();
 					this.editor.open(path, content);
 				}
+				this._closeMobileDrawers(); // ★ ファイルを開いたらドロワーを閉じる
 			});
 
 			// 2. Explorer -> History Event (Immediate Update)
@@ -69,6 +73,7 @@
 			// 3. Chat -> Media Preview
 			this.chat.on('preview_request', (name, base64, mimeType) => {
 				this.mediaViewer.open(name, base64, mimeType);
+				this._closeMobileDrawers(); // ★ プレビュー時も閉じる
 			});
 
 			// 4. Editor Save -> VFS & History
@@ -84,6 +89,107 @@
 				// Optional: Auto refresh preview on manual save
 				this.refreshPreview();
 			});
+		}
+
+		// --- Mobile UI Control ---
+		_bindMobileUI() {
+			const {
+				sidebar,
+				chatPanel,
+				mobileOverlay,
+				mobileNavFiles,
+				mobileNavView,
+				mobileNavChat
+			} = this.els;
+			if (!mobileNavFiles) return;
+
+			const setActive = (target) => {
+				[mobileNavFiles, mobileNavView, mobileNavChat].forEach(btn => {
+					btn.classList.remove('text-blue-400', 'font-bold', 'bg-gray-700/50');
+					btn.classList.add('text-gray-400');
+				});
+				target.classList.remove('text-gray-400');
+				target.classList.add('text-blue-400', 'font-bold', 'bg-gray-700/50');
+			};
+
+			const toggleOverlay = (show) => {
+				if (show) mobileOverlay.classList.remove('hidden');
+				else mobileOverlay.classList.add('hidden');
+			};
+
+			// Files Tab: 左からスライドイン
+			mobileNavFiles.addEventListener('click', () => {
+				setActive(mobileNavFiles);
+
+				// Open Sidebar
+				sidebar.classList.remove('-translate-x-full');
+				sidebar.classList.add('translate-x-0');
+
+				// Close Chat
+				chatPanel.classList.remove('translate-x-0');
+				chatPanel.classList.add('translate-x-full');
+
+				toggleOverlay(true);
+			});
+
+			// View Tab: 全て閉じる
+			mobileNavView.addEventListener('click', () => {
+				this._closeMobileDrawers();
+			});
+
+			// Chat Tab: 右からスライドイン
+			mobileNavChat.addEventListener('click', () => {
+				setActive(mobileNavChat);
+
+				// Close Sidebar
+				sidebar.classList.remove('translate-x-0');
+				sidebar.classList.add('-translate-x-full');
+
+				// Open Chat
+				chatPanel.classList.remove('translate-x-full');
+				chatPanel.classList.add('translate-x-0');
+
+				toggleOverlay(true);
+			});
+
+			if (mobileOverlay) {
+				mobileOverlay.addEventListener('click', () => {
+					this._closeMobileDrawers();
+				});
+			}
+		}
+
+		_closeMobileDrawers() {
+			const {
+				sidebar,
+				chatPanel,
+				mobileOverlay,
+				mobileNavView,
+				mobileNavFiles,
+				mobileNavChat
+			} = this.els;
+			if (!sidebar || !chatPanel) return;
+
+			// Close Sidebar (戻す)
+			sidebar.classList.remove('translate-x-0');
+			sidebar.classList.add('-translate-x-full');
+
+			// Close Chat (戻す)
+			chatPanel.classList.remove('translate-x-0');
+			chatPanel.classList.add('translate-x-full');
+
+			if (mobileOverlay) mobileOverlay.classList.add('hidden');
+
+			if (mobileNavView) {
+				[mobileNavFiles, mobileNavView, mobileNavChat].forEach(btn => {
+					if (btn) {
+						btn.classList.remove('text-blue-400', 'font-bold', 'bg-gray-700/50');
+						btn.classList.add('text-gray-400');
+					}
+				});
+				mobileNavView.classList.remove('text-gray-400');
+				mobileNavView.classList.add('text-blue-400', 'font-bold', 'bg-gray-700/50');
+			}
 		}
 
 		// Ensure to copy previous implementations of these methods here.

@@ -40,7 +40,7 @@
 		btnCloseEditor: 'btn-close-editor',
 		btnSaveEditor: 'btn-save-editor',
 
-		// Media Viewer (NEW)
+		// Media Viewer
 		mediaOverlay: 'media-overlay',
 		mediaImage: 'media-image',
 		btnCloseMedia: 'btn-close-media',
@@ -62,7 +62,14 @@
 		saveStatus: 'save-status',
 
 		// Global
-		resizeOverlay: 'resize-overlay', // ★追加
+		resizeOverlay: 'resize-overlay',
+
+		// Mobile Navigation (New)
+		mobileNavFiles: 'mobile-nav-files',
+		mobileNavView: 'mobile-nav-view',
+		mobileNavChat: 'mobile-nav-chat',
+		mobileOverlay: 'mobile-overlay',
+		chatPanel: 'chat-panel'
 	};
 
 })(window);

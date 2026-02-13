@@ -34,6 +34,7 @@
 				return {
 					result: {
 						log: `Error: Unknown tool <${action.type}>`
+						// error: true // 必要であればここもエラー扱いにする
 					},
 					signal: global.REAL.Signal.CONTINUE
 				};
@@ -60,7 +61,8 @@
 				return {
 					result: {
 						log: `Error executing <${action.type}>: ${err.message}`,
-						ui: `❌ Error: ${err.message}`
+						ui: `❌ Error: ${err.message}`,
+						error: true // ★ Engineにエラーを通知するフラグ
 					},
 					signal: global.REAL.Signal.CONTINUE
 				};
