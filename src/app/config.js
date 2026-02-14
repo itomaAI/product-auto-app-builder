@@ -151,7 +151,7 @@ This app will run locally without a backend server.
 <define_tag name="create_file">
 Creates a new file or completely overwrites an existing one.
 Attributes:
-    - path: The file path (e.g., "js/app.js").
+    - path: The file path (e.g., "js/app.js"). Directories in the path will be created if they do not exist.
 Content:
     - The full raw text content of the file.
 </define_tag>
@@ -217,7 +217,7 @@ Attributes:
 Renames or moves a file.
 Attributes:
     - path: Current file path.
-    - new_path: Destination path.
+    - new_path: Destination path. Directories in the new path will be created if they do not exist.
 </define_tag>
 
 <define_tag name="search">
