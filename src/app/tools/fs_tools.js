@@ -61,7 +61,16 @@
 
 		// --- create_file ---
 		registry.register('create_file', async (params, state) => {
-			const msg = vfs.writeFile(params.path, params.content);
+			let content = params.content || "";
+
+			// ★ 修正: 先頭と末尾の改行を最大1つ削除 (LPMLのタグ直後に入る改行対策)
+			if (content.startsWith('\n')) content = content.slice(1);
+			else if (content.startsWith('\r\n')) content = content.slice(2);
+
+			if (content.endsWith('\n')) content = content.slice(0, -1);
+			else if (content.endsWith('\r\n')) content = content.slice(0, -2);
+
+			const msg = vfs.writeFile(params.path, content);
 			return {
 				log: `[create_file] ${msg}`,
 				ui: `📝 Created ${params.path}`

@@ -44,7 +44,8 @@
 				li.className = 'tree-node select-none';
 
 				const div = document.createElement('div');
-				div.className = `tree-content hover:bg-gray-700 cursor-pointer flex items-center py-0.5 px-2 border-l-2 border-transparent transition ${this.selectedPath === node.path ? 'bg-gray-700 border-blue-500' : ''}`;
+				// ★ 修正: justify-betweenを追加し、レイアウトを調整
+				div.className = `tree-content hover:bg-gray-700 cursor-pointer flex items-center justify-between py-0.5 px-2 border-l-2 border-transparent transition group ${this.selectedPath === node.path ? 'bg-gray-700 border-blue-500' : ''}`;
 				div.style.paddingLeft = `${indentLevel * 12 + 8}px`;
 				div.dataset.path = node.path;
 				div.dataset.type = node.type;
@@ -64,7 +65,30 @@
 					(this.expandedPaths.has(node.path) ? '📂' : '📁') :
 					this._getFileIcon(node.name);
 
-				div.innerHTML = `<span class="mr-2 opacity-80 text-xs pointer-events-none">${icon}</span><span class="truncate pointer-events-none">${node.name}</span>`;
+				// ★ 修正: コンテンツ表示エリアとメニューボタンの構成に変更
+				// 左側: アイコンと名前
+				const leftContent = document.createElement('div');
+				leftContent.className = 'flex items-center min-w-0 overflow-hidden pointer-events-none flex-1';
+				leftContent.innerHTML = `<span class="mr-2 opacity-80 text-xs shrink-0">${icon}</span><span class="truncate text-xs">${node.name}</span>`;
+				div.appendChild(leftContent);
+
+				// 右側: メニューボタン (モバイルのみ表示 md:hidden)
+				const menuBtn = document.createElement('button');
+				menuBtn.className = 'md:hidden p-1 text-gray-400 hover:text-white rounded hover:bg-gray-600 shrink-0 ml-1 z-10 flex items-center justify-center opacity-70 hover:opacity-100';
+				// 縦の三点リーダーアイコン
+				menuBtn.innerHTML = `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path></svg>`;
+
+				menuBtn.onclick = (e) => {
+					e.stopPropagation(); // ファイルを開く等の親イベントを阻止
+					this.selectedPath = node.path;
+
+					// メニュー表示位置の計算
+					const rect = menuBtn.getBoundingClientRect();
+					// ボタンの少し左下に表示
+					this._showContextMenu(rect.left - 100, rect.bottom + 5, node);
+				};
+				div.appendChild(menuBtn);
+
 				div.onclick = (e) => this._handleClick(e, node);
 				div.oncontextmenu = (e) => this._handleContextMenu(e, node);
 
@@ -245,8 +269,8 @@
 				const ul = li.querySelector('ul');
 				if (ul) {
 					ul.classList.toggle('hidden');
-					const iconSpan = e.currentTarget.querySelector('span:first-child');
-					iconSpan.textContent = this.expandedPaths.has(node.path) ? '📂' : '📁';
+					const iconSpan = e.currentTarget.querySelector('div:first-child span:first-child');
+					if (iconSpan) iconSpan.textContent = this.expandedPaths.has(node.path) ? '📂' : '📁';
 				}
 			} else {
 				if (this.events['open']) this.events['open'](node.path);
@@ -337,12 +361,16 @@
 			let posX = x;
 			let posY = y;
 
+			// 画面外にはみ出る場合は調整
 			if (posX + rect.width > winWidth) {
 				posX = winWidth - rect.width - 5;
 			}
 			if (posY + rect.height > winHeight) {
 				posY = winHeight - rect.height - 5;
 			}
+			// マイナス座標防止
+			if (posX < 0) posX = 5;
+			if (posY < 0) posY = 5;
 
 			this.contextMenu.style.left = `${posX}px`;
 			this.contextMenu.style.top = `${posY}px`;
