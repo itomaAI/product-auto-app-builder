@@ -56,7 +56,7 @@
 					if (e.ctrlKey && e.key === 'Enter') handleSend();
 				};
 
-				// ★ Paste Image (Ctrl+V) Support
+				// Paste Image (Ctrl+V) Support
 				this.els.chatInput.addEventListener('paste', (e) => {
 					const items = (e.clipboardData || window.clipboardData).items;
 					let fileFound = false;
@@ -260,6 +260,19 @@
 				div.className = `${baseClass} bg-gray-800 text-gray-400 text-xs mx-8 font-mono border-gray-600`;
 			}
 
+			// メッセージ削除ボタンの追加
+			const btnDelete = document.createElement('button');
+			btnDelete.className = "absolute top-2 right-2 text-gray-400 hover:text-red-400 transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 z-10";
+			btnDelete.title = "Delete message";
+			btnDelete.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+			btnDelete.onclick = (e) => {
+				e.stopPropagation();
+				if (confirm("Delete this message?")) {
+					if (this.events['delete_turn']) this.events['delete_turn'](turn.id);
+				}
+			};
+			div.appendChild(btnDelete);
+
 			const header = document.createElement('div');
 			header.className = "flex justify-between items-center mb-1 opacity-50 text-[10px] font-bold uppercase";
 			header.textContent = role;
@@ -445,6 +458,12 @@
 			let colorClass = "border-gray-600 bg-gray-800";
 			let isOpen = false;
 
+			// 属性取得ヘルパー
+			const getAttr = (key) => {
+				const m = attributes.match(new RegExp(`${key}=["']?([^"'\s]+)["']?`));
+				return m ? m[1] : null;
+			};
+
 			if (tagName === 'thinking') {
 				title = "💭 Thinking";
 				colorClass = "border-blue-900 bg-blue-900/20";
@@ -463,9 +482,13 @@
 				colorClass = "border-green-600 bg-green-900/60";
 				isOpen = true;
 			} else if (['create_file', 'edit_file'].includes(tagName)) {
-				const pathMatch = attributes.match(/path=["']?([^"'\s]+)["']?/);
-				title = `📝 ${tagName}: ${pathMatch ? pathMatch[1] : ''}`;
+				const pathMatch = getAttr('path');
+				title = `📝 ${tagName}: ${pathMatch ? pathMatch : ''}`;
 				colorClass = "border-yellow-900 bg-yellow-900/20";
+			} else if (tagName === 'user_attachment') {
+				const name = getAttr('name');
+				title = `📎 ${name || 'Attachment'}`;
+				colorClass = "border-gray-700 bg-gray-800";
 			} else if (['read_file', 'list_files', 'delete_file', 'move_file', 'preview', 'take_screenshot'].includes(tagName)) {
 				title = `🔧 ${tagName}`;
 				colorClass = "border-gray-600 bg-gray-800";

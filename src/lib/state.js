@@ -36,6 +36,14 @@
 		}
 
 		/**
+		 * 指定されたIDのターンを削除する
+		 * @param {string} id 
+		 */
+		deleteTurn(id) {
+			this.history = this.history.filter(t => t.id !== id);
+		}
+
+		/**
 		 * 履歴全体を取得 (参照渡し)
 		 * ※ 破壊的操作が必要な場合(古いスクショ削除など)はこの参照経由で行う
 		 */
