@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	App.Tools.registerNavTools(registry, vfs);
 	App.Tools.registerUITools(registry, ui);
 
-	// ★ 追加: 検索ツールの登録
+	// 検索ツールの登録
 	if (App.Tools.registerSearchTools) {
 		App.Tools.registerSearchTools(registry, vfs);
 	}
@@ -225,10 +225,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 		ui.chat.setProcessing(true);
 
 		const content = [];
-		if (text) content.push({
-			text
-		});
 
+		// 1. Attachments first (ファイル添付を先に処理)
 		for (const file of files) {
 			if (file.type.startsWith('text/') || file.name.match(/\.(js|py|html|json|css|md|txt)$/)) {
 				const textContent = await file.text();
@@ -245,6 +243,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 					}
 				});
 			}
+		}
+
+		// 2. User Text Input last (テキスト入力を後に処理)
+		if (text) {
+			content.push({
+				text
+			});
 		}
 
 		engine.llm = createLLM();
@@ -269,6 +274,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 			ui.chat.renderHistory([]);
 			triggerAutoSave();
 		}
+	});
+
+	// メッセージ削除イベント
+	ui.chat.on('delete_turn', (id) => {
+		state.deleteTurn(id);
+		ui.chat.renderHistory(state.getHistory());
+		triggerAutoSave();
 	});
 
 	const btnDownload = document.getElementById(DOM.btnDownload);

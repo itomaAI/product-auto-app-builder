@@ -56,7 +56,7 @@
 			// A. テキストの場合
 			if (typeof turn.content === 'string') {
 				let text = turn.content;
-				// 【修正】ユーザー入力ならタグで囲む
+				// ユーザー入力ならタグで囲む
 				if (turn.role === Role.USER) {
 					text = `<user_input>\n${text}\n</user_input>`;
 				}
@@ -102,31 +102,43 @@
 				// 2. 通常のUser Input (Attachments / Images) の場合
 				if (turn.role === Role.USER) {
 					const parts = [];
-					let textBuffer = "";
+					let userInputBuffer = "";
 
 					// テキストバッファをタグで囲んで出力する関数
-					const flushText = () => {
-						if (textBuffer.trim()) {
+					const flushUserInput = () => {
+						if (userInputBuffer.trim()) {
 							parts.push({
-								text: `<user_input>\n${textBuffer.trim()}\n</user_input>`
+								text: `<user_input>\n${userInputBuffer.trim()}\n</user_input>`
 							});
 						}
-						textBuffer = "";
+						userInputBuffer = "";
 					};
 
 					for (const item of turn.content) {
 						if (item.text) {
-							textBuffer += item.text + "\n";
+							const trimmed = item.text.trim();
+							// user_attachment または user_input タグで始まる場合は、
+							// すでに構造化されているとみなし、バッファをフラッシュしてそのまま追加する
+							// これにより二重ラップを防ぐ
+							if (trimmed.startsWith('<user_attachment') || trimmed.startsWith('<user_input')) {
+								flushUserInput();
+								parts.push({
+									text: item.text
+								});
+							} else {
+								// 通常のテキストはバッファに溜めて、後で <user_input> で囲む
+								userInputBuffer += item.text + "\n";
+							}
 						} else if (item.inlineData) {
 							// 画像が来たら、一旦溜まったテキストを吐き出す（Geminiはテキストと画像を混ぜて送信するため）
-							flushText();
+							flushUserInput();
 							parts.push({
 								inlineData: item.inlineData
 							});
 						}
 					}
 					// 残りのテキストを吐き出す
-					flushText();
+					flushUserInput();
 
 					return parts;
 				}
