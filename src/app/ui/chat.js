@@ -505,12 +505,7 @@
 				return `<div class="text-xs font-mono py-1 px-2 rounded border ${colorClass} mb-2 inline-block opacity-80" title="Tool Call">&lt;${tagName}${attributes} /&gt;</div>`;
 			}
 
-			return `<details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group">
-                <summary class="cursor-pointer p-2 text-xs font-bold text-gray-300 bg-black/20 hover:bg-black/40 select-none flex items-center gap-2">
-                    <span class="group-open:rotate-90 transition-transform">▶</span> ${title}
-                </summary>
-                <div class="p-2 text-xs font-mono overflow-x-auto bg-black/10 whitespace-pre-wrap">${displayContent}</div>
-            </details>`;
+			return `<details ${openAttr} class="mb-2 rounded border ${colorClass} overflow-hidden group"><summary class="cursor-pointer p-2 text-xs font-bold text-gray-300 bg-black/20 hover:bg-black/40 select-none flex items-center gap-2"><span class="group-open:rotate-90 transition-transform">▶</span> ${title}</summary><div class="p-2 text-xs font-mono overflow-x-auto bg-black/10 whitespace-pre-wrap">${displayContent}</div></details>`;
 		}
 	}
 
