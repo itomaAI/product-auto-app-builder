@@ -460,7 +460,7 @@
 
 			// 属性取得ヘルパー
 			const getAttr = (key) => {
-				const m = attributes.match(new RegExp(`${key}=["']?([^"'\s]+)["']?`));
+				const m = attributes.match(new RegExp(`${key}=["']?([^"'\\s]+)["']?`));
 				return m ? m[1] : null;
 			};
 
