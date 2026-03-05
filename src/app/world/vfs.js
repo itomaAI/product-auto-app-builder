@@ -350,6 +350,7 @@
 			const eLine = parseInt(endLine);
 
 			let actionLog = "";
+			let finalContent = "";
 
 			if (mode === 'append') {
 				// ★ Append Mode
@@ -359,7 +360,7 @@
 				}
 				updatedContent += cleanContent;
 
-				this.files[p] = updatedContent;
+				finalContent = updatedContent;
 				actionLog = `Appended ${newLines.length} lines to end of file`;
 
 			} else if (mode === 'replace') {
@@ -367,28 +368,31 @@
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, deleteCount, ...newLines);
+				
+				finalContent = lines.join('\n');
 				actionLog = `Replaced lines ${sLine}-${eLine}`;
-				this.files[p] = lines.join('\n');
 
 			} else if (mode === 'insert') {
 				while (lines.length < sIdx) lines.push("");
 				lines.splice(sIdx, 0, ...newLines);
+				
+				finalContent = lines.join('\n');
 				actionLog = `Inserted ${newLines.length} lines at line ${sLine}`;
-				this.files[p] = lines.join('\n');
 
 			} else if (mode === 'delete') {
 				if (isNaN(eLine)) throw new Error("Attribute 'end' is required for mode='delete'");
 				const deleteCount = Math.max(0, eLine - sLine + 1);
 				if (sIdx < lines.length) lines.splice(sIdx, deleteCount);
+				
+				finalContent = lines.join('\n');
 				actionLog = `Deleted lines ${sLine}-${eLine}`;
-				this.files[p] = lines.join('\n');
 
 			} else {
 				throw new Error(`Unknown edit mode: ${mode}`);
 			}
 
 			// ★ writeFile経由で保存 (updated_at更新)
-			this.writeFile(p, lines.join('\n'));
+			this.writeFile(p, finalContent);
 			return `Edited ${p}: ${actionLog}`;
 		}
 	}
