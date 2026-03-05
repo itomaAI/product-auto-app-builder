@@ -27,19 +27,23 @@
 				if (content.startsWith('data:')) {
 					const parts = content.split(',');
 					const meta = parts[0];
-					base64 = parts[1];
+					// base64 = parts[1]; // 実体は返さない
 					const match = meta.match(/:(.*?);/);
 					if (match) mimeType = match[1];
 				} else if (params.path.endsWith('.svg')) {
-					base64 = btoa(unescape(encodeURIComponent(content)));
+					// base64 = btoa(unescape(encodeURIComponent(content)));
 					mimeType = 'image/svg+xml';
 				}
 
+				// ★ media オブジェクトを返す
 				return {
 					log: `[read_file] Read binary file: ${params.path} (${mimeType})`,
 					ui: `📦 Read Binary ${params.path}`,
-					image: base64,
-					mimeType: mimeType
+					media: {
+						path: params.path,
+						mimeType: mimeType,
+						metadata: {}
+					}
 				};
 			}
 
@@ -83,72 +87,132 @@
 			// Check if regex is explicitly enabled
 			const useRegex = params.use_regex === 'true';
 
-			// マーカー定義
-			const MARKER_SEARCH = "<<<<SEARCH";
-			const MARKER_DIVIDER = "====";
-			const MARKER_END = ">>>>";
-
-			if (content.split(MARKER_SEARCH).length > 2) {
-				throw new Error(
-					"Multiple replacement blocks detected in one <edit_file> tag. " +
-					"Please split them into separate <edit_file> tags for safety."
+			// Line-based Editing Mode
+			if (params.mode) {
+				const msg = vfs.editLines(
+					params.path,
+					params.start,
+					params.end,
+					params.mode,
+					content
 				);
-			}
-
-			// Block Replacement Mode (Search & Replace)
-			if (content.includes(MARKER_SEARCH) && content.includes(MARKER_DIVIDER) && content.includes(MARKER_END)) {
-
-				const searchStart = content.indexOf(MARKER_SEARCH) + MARKER_SEARCH.length;
-				const divStart = content.indexOf(MARKER_DIVIDER);
-				const divEnd = divStart + MARKER_DIVIDER.length;
-				const blockEnd = content.lastIndexOf(MARKER_END);
-
-				if (divStart < searchStart || blockEnd < divEnd) {
-					throw new Error("Invalid edit_file format: Markers are malformed or out of order.");
-				}
-
-				let patternStr = content.substring(searchStart, divStart);
-				let replaceStr = content.substring(divEnd, blockEnd);
-
-				// 改行トリム (プロンプトの都合で入る余計な改行を除去)
-				if (patternStr.startsWith('\n')) patternStr = patternStr.substring(1);
-				if (patternStr.endsWith('\n')) patternStr = patternStr.substring(0, patternStr.length - 1);
-
-				if (replaceStr.startsWith('\n')) replaceStr = replaceStr.substring(1);
-				if (replaceStr.endsWith('\n')) replaceStr = replaceStr.substring(0, replaceStr.length - 1);
-
-				// ★ 変更点: 正規表現モードでない場合はエスケープする
-				if (!useRegex) {
-					// リテラル検索として扱うため、正規表現の特殊文字を全てエスケープする
-					patternStr = escapeRegExp(patternStr);
-				}
-
-				// VFSのreplaceContentは RegExp(patternStr) を使う仕様なので、
-				// リテラル検索の場合はエスケープ済みの文字列を渡すことで完全一致検索となる。
-				const msg = vfs.replaceContent(params.path, patternStr, replaceStr);
-
 				return {
 					log: `[edit_file] ${msg}`,
+					ui: `✏️ Edited ${params.path} (${params.mode})`
+				};
+			}
+
+			// Block Replacement Mode (Itera-style: Variable Length Markers & Multi-block)
+			// Matches <<<<SEARCH, <<<<<SEARCH, etc.
+			if (/<{4,}SEARCH/.test(content)) {
+				const blocks = [];
+				const startRegex = /^(<{4,})SEARCH[^\r\n]*$/gm;
+				let startMatch;
+
+				// ステートマシン風に文字列を順次スキャンし、文字数が完全一致するマーカーだけを抽出
+				while ((startMatch = startRegex.exec(content)) !== null) {
+					const len = startMatch[1].length;
+					const headerEnd = startMatch.index + startMatch[0].length;
+
+					let contentStart = headerEnd;
+					if (content[contentStart] === '\r') contentStart++;
+					if (content[contentStart] === '\n') contentStart++;
+
+					// 開始マーカーと同じ文字数の '=' だけの行を探す
+					const midRegex = new RegExp(`^={${len}}$`, 'gm');
+					midRegex.lastIndex = contentStart;
+					const midMatch = midRegex.exec(content);
+
+					if (!midMatch) continue; // みつからなければ次の SEARCH ブロックへ
+
+					let patternStr = content.substring(contentStart, midMatch.index);
+					// 直前の改行を除去
+					if (patternStr.endsWith('\n')) patternStr = patternStr.slice(0, -1);
+					if (patternStr.endsWith('\r')) patternStr = patternStr.slice(0, -1);
+
+					const midEnd = midMatch.index + midMatch[0].length;
+					let replaceStart = midEnd;
+					if (content[replaceStart] === '\r') replaceStart++;
+					if (content[replaceStart] === '\n') replaceStart++;
+
+					// 開始マーカーと同じ文字数の '>' だけの行を探す
+					const endRegex = new RegExp(`^>{${len}}$`, 'gm');
+					endRegex.lastIndex = replaceStart;
+					const endMatch = endRegex.exec(content);
+
+					if (!endMatch) continue;
+
+					let replaceStr = content.substring(replaceStart, endMatch.index);
+					// 直前の改行を除去
+					if (replaceStr.endsWith('\n')) replaceStr = replaceStr.slice(0, -1);
+					if (replaceStr.endsWith('\r')) replaceStr = replaceStr.slice(0, -1);
+
+					blocks.push({
+						patternStr,
+						replaceStr
+					});
+
+					// 次の検索開始位置を終了マーカーの後に設定
+					startRegex.lastIndex = endMatch.index + endMatch[0].length;
+				}
+
+				if (blocks.length === 0) {
+					throw new Error("Invalid edit block format. Ensure you use SEARCH, ====, and >>>> markers correctly (at least 4 chars, matching lengths, isolated on their own lines).");
+				}
+
+				let currentFileContent = vfs.readFile(params.path);
+				let replaceCount = 0;
+
+				for (let i = 0; i < blocks.length; i++) {
+					let {
+						patternStr,
+						replaceStr
+					} = blocks[i];
+
+					if (!useRegex) {
+						// リテラル検索として扱うため、正規表現の特殊文字を全てエスケープする
+						patternStr = patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+					}
+
+					let regex;
+					try {
+						// VFSの改行コード差異を吸収するため、必要に応じて調整が必要かもしれないが
+						// 基本的には 'm' フラグで複数行マッチを行う
+						regex = new RegExp(patternStr, 'm');
+					} catch (e) {
+						throw new Error(`Invalid RegExp in block ${i + 1}: ${e.message}`);
+					}
+
+					if (!regex.test(currentFileContent)) {
+						// ヒントとしてパターンの先頭を表示
+						const snippet = patternStr.length > 50 ? patternStr.slice(0, 50) + "..." : patternStr;
+						throw new Error(`Search pattern not found in ${params.path} for block ${i + 1}. Search: "${snippet}"`);
+					}
+
+					// $ のエスケープ処理 (置換テキスト内の $ が正規表現の後方参照として誤爆するのを防ぐ)
+					const safeReplaceStr = replaceStr.replace(/\$/g, '$$$$');
+					const newContent = currentFileContent.replace(regex, safeReplaceStr);
+
+					if (newContent === currentFileContent) {
+						throw new Error(`Replacement resulted in no change for block ${i + 1}.`);
+					}
+
+					currentFileContent = newContent;
+					replaceCount++;
+				}
+
+				// すべての置換が成功した場合のみ書き込む
+				vfs.writeFile(params.path, currentFileContent);
+
+				const blockMsg = replaceCount > 1 ? ` (${replaceCount} blocks updated)` : '';
+				return {
+					log: `[edit_file] Replaced content in ${params.path}${blockMsg}`,
 					ui: `✏️ ${useRegex ? 'Regex' : 'Text'} Replace in ${params.path}`
 				};
 			}
 
-			// Line-based Editing Mode (Fallback)
-			if (!params.mode) {
-				throw new Error("Attribute 'mode' is required when not using SEARCH/REPLACE blocks.");
-			}
-
-			const msg = vfs.editLines(
-				params.path,
-				params.start,
-				params.end,
-				params.mode,
-				content
-			);
-			return {
-				log: `[edit_file] ${msg}`,
-				ui: `✏️ ${msg}`
-			};
+			// Fallback error if no mode and no blocks found
+			throw new Error("Invalid <edit_file> content. Use SEARCH markers or specify 'mode' attribute.");
 		});
 	};
 

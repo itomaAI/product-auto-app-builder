@@ -88,7 +88,7 @@
 					loopCount++;
 
 					// 2. Context Projection (Ω -> Prompt)
-					const messages = this.projector.createContext(this.state);
+					const messages = await this.projector.createContext(this.state);
 
 					// 3. Generation (Prompt -> RawText)
 					this._emit('turn_start', {

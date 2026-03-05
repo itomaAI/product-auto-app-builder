@@ -27,10 +27,25 @@
 
 			try {
 				const base64 = await uiController.captureScreenshot();
+
+				// ★ VFSへ保存 (コンテキスト圧迫回避)
+				const timestamp = Date.now();
+				const filename = `screenshot_${timestamp}.png`;
+				const dir = '.cache/media';
+				const path = `${dir}/${filename}`;
+
+				// VFSはDataURL形式で保存する
+				const dataUrl = `data:image/png;base64,${base64}`;
+				state.vfs.writeFile(path, dataUrl);
+
 				return {
-					log: `[take_screenshot] Captured current view.`,
+					log: `[take_screenshot] Captured and saved to ${path}`,
 					ui: `📸 Screenshot Captured`,
-					image: base64 // ProjectorがinlineDataにする
+					media: {
+						path: path,
+						mimeType: 'image/png',
+						metadata: {}
+					}
 				};
 			} catch (e) {
 				return {
