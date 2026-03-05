@@ -6,10 +6,10 @@
 
 	class VirtualFileSystem {
 		constructor(initialFiles = {}) {
-			this.files = {
-				...initialFiles
-			};
+			this.files = {};
 			this.listeners = [];
+			// 初期化データの一括ロード（マイグレーション含む）
+			this.loadFiles(initialFiles);
 		}
 
 		subscribe(callback) {
@@ -22,10 +22,79 @@
 		}
 
 		// --- Helper: Normalize Path ---
-		// 先頭のスラッシュを削除し、統一的なパス形式にする
 		_norm(path) {
 			if (!path) return "";
 			return path.replace(/^\/+/, '');
+		}
+
+		// --- Helper: Data Migration (String -> Object) ---
+		_migrate(entry) {
+			const now = Date.now();
+			// 文字列（旧形式）の場合
+			if (typeof entry === 'string') {
+				return {
+					content: entry,
+					meta: {
+						created_at: now,
+						updated_at: now
+					}
+				};
+			}
+			// 既にオブジェクトの場合 (安全策)
+			if (entry && typeof entry === 'object' && typeof entry.content === 'string') {
+				return {
+					content: entry.content,
+					meta: {
+						created_at: entry.meta?.created_at || now,
+						updated_at: entry.meta?.updated_at || now
+					}
+				};
+			}
+			// 不正データまたは空の場合
+			return {
+				content: "",
+				meta: {
+					created_at: now,
+					updated_at: now
+				}
+			};
+		}
+
+		/**
+		 * 外部データを一括ロードする（マイグレーション適用）
+		 */
+		loadFiles(filesObject) {
+			Object.entries(filesObject).forEach(([path, entry]) => {
+				this.files[this._norm(path)] = this._migrate(entry);
+			});
+			this.notify();
+		}
+
+		/**
+		 * ファイルのメタデータを取得 (Compilerのキャッシュ判定用)
+		 */
+		stat(path) {
+			const p = this._norm(path);
+			if (this.exists(p)) {
+				const f = this.files[p];
+				return {
+					path: p,
+					size: f.content.length,
+					updated_at: f.meta.updated_at,
+					created_at: f.meta.created_at,
+					type: 'file'
+				};
+			}
+			if (this.isDirectory(p)) {
+				return {
+					path: p,
+					size: 0,
+					updated_at: 0,
+					created_at: 0,
+					type: 'folder'
+				};
+			}
+			throw new Error(`Path not found: ${path}`);
 		}
 
 		exists(path) {
@@ -42,7 +111,8 @@
 		readFile(path) {
 			const p = this._norm(path);
 			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
-			return this.files[p];
+			// ★ contentプロパティを返す
+			return this.files[p].content;
 		}
 
 		writeFile(path, content) {
@@ -51,7 +121,23 @@
 			if (p.includes('..')) throw new Error("Invalid path: '..' is not allowed");
 
 			const exists = this.exists(p);
-			this.files[p] = content;
+			const now = Date.now();
+
+			if (exists) {
+				// 既存ファイルの更新（メタデータ維持・更新）
+				this.files[p].content = content;
+				this.files[p].meta.updated_at = now;
+			} else {
+				// 新規作成
+				this.files[p] = {
+					content: content,
+					meta: {
+						created_at: now,
+						updated_at: now
+					}
+				};
+			}
+
 			this.notify();
 			return exists ?
 				`Overwrote ${p} (${content.length} chars)` :
@@ -65,8 +151,8 @@
 
 			const keepFile = `${p}/.keep`;
 			if (!this.exists(keepFile)) {
-				this.files[keepFile] = "";
-				this.notify();
+				// ★ writeFile経由で作成してオブジェクト構造を担保
+				this.writeFile(keepFile, "");
 				return `Created directory: ${p}`;
 			}
 			return `Directory already exists: ${p}`;
@@ -104,6 +190,7 @@
 			// 1. File Rename
 			if (this.exists(oldP)) {
 				if (this.exists(newP)) throw new Error(`Destination ${newP} already exists.`);
+				// オブジェクトの参照移動（メタデータ含む）
 				this.files[newP] = this.files[oldP];
 				delete this.files[oldP];
 				this.notify();
@@ -136,13 +223,32 @@
 			const dest = this._norm(destPath);
 			if (!this.exists(src)) throw new Error(`Source ${src} not found.`);
 			if (this.exists(dest)) throw new Error(`Destination ${dest} already exists.`);
-			this.files[dest] = this.files[src];
-			this.notify();
+			
+			// ★ writeFile経由でコンテンツをコピー（新規メタデータで作成）
+			this.writeFile(dest, this.files[src].content);
+			
 			return `Copied: ${src} -> ${dest}`;
 		}
 
-		listFiles() {
-			return Object.keys(this.files).sort();
+		listFiles(options = {}) {
+			const root = options.path ? this._norm(options.path) : "";
+			const recursive = options.recursive !== false; // デフォルトtrue (MetaForge互換のため)
+			// ※ MetaForgeの既存コードは引数なしで呼ぶことが多いので、デフォルト挙動は「全リスト」にするのが無難
+
+			let result = Object.keys(this.files).sort();
+
+			// パスフィルタ
+			if (root) {
+				const prefix = root.endsWith('/') ? root : root + '/';
+				result = result.filter(p => p.startsWith(prefix));
+			}
+
+			// detail オプション対応 (Compilerで使用)
+			if (options.detail) {
+				return result.map(p => this.stat(p));
+			}
+
+			return result;
 		}
 
 		getTree() {
@@ -199,7 +305,8 @@
 			const p = this._norm(path);
 			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
 
-			const content = this.files[p];
+			// ★ readFile経由で取得
+			const content = this.readFile(path);
 			const originalLength = content.length;
 
 			let regex;
@@ -218,8 +325,8 @@
 			const newContent = content.replace(regex, replacement);
 			if (newContent === content) throw new Error(`Pattern matched but replacement resulted in no change.`);
 
-			this.files[p] = newContent;
-			this.notify();
+			// ★ writeFile経由で保存 (updated_at更新)
+			this.writeFile(p, newContent);
 			return `Replaced pattern match in ${p}. (Size: ${originalLength} -> ${newContent.length} chars)`;
 		}
 
@@ -227,7 +334,8 @@
 			const p = this._norm(path);
 			if (!this.exists(p)) throw new Error(`File not found: ${p}`);
 
-			const content = this.files[p];
+			// ★ readFile経由で取得
+			const content = this.readFile(path);
 			let lines = content.split(/\r?\n/);
 
 			let cleanContent = newContent;
@@ -279,7 +387,8 @@
 				throw new Error(`Unknown edit mode: ${mode}`);
 			}
 
-			this.notify();
+			// ★ writeFile経由で保存 (updated_at更新)
+			this.writeFile(p, lines.join('\n'));
 			return `Edited ${p}: ${actionLog}`;
 		}
 	}

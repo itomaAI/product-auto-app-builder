@@ -157,37 +157,25 @@ Content:
 </define_tag>
 
 <define_tag name="edit_file">
-Modifies a file.
+Modifies a specific part of a file.
 Attributes:
     - path: Target file path.
     - use_regex (optional): "true" to enable Regex matching. **Default is "false" (String Literal Search).**
-
-Constraint:
-    - **You MUST provide only ONE replacement block per <edit_file> tag.**
-    - If you need to modify multiple locations, use multiple <edit_file> tags.
+    - mode (optional): "insert"|"replace"|"delete"|"append" (For line-based editing).
 
 Content:
-    **OPTION 1: String Literal Search (DEFAULT, Recommended)**
-    Use this for exact text replacement. No need to escape special characters.
+    **OPTION 1: Block Replacement (DEFAULT, Recommended)**
+    Use SEARCH blocks to define the target text. You can include MULTIPLE replacement blocks in a single <edit_file> tag.
+    The number of '<', '=', and '>' MUST be identical and at least 4 characters long. If your code contains '====', use '=====' or more for the marker.
     
     Format:
-    <<<<SEARCH
-    (Text to find - Exact Match)
-    ====
+    <<<<<SEARCH
+    (Text to find - Exact Match or Regex if use_regex="true")
+    =====
     (Replacement text)
-    >>>>
+    >>>>>
 
-    **OPTION 2: Regex Replacement (Requires use_regex="true")**
-    Use this ONLY when you need pattern matching. You MUST escape regex special characters in the search block.
-
-    Format:
-    <<<<SEARCH
-    (Regex pattern)
-    ====
-    (Replacement)
-    >>>>
-
-    **OPTION 3: Line-based Editing**
+    **OPTION 2: Line-based Editing**
     Attributes required: mode="replace"|"insert"|"delete"|"append", start, end.
     - mode="append": Appends content to the end of the file. (start/end not required)
     - mode="delete": Deletes lines from 'start' to 'end'. If you want to delete a single line, set start=end.

@@ -176,14 +176,7 @@
 
 			for (const item of rawActions) {
 				// コンテンツの結合と正規化
-				let contentText = this._extractContent(item.content);
-
-				// 【重要】VFSの replaceContent 対策
-				// Regexモードのブロックが含まれている場合、置換文字列内の $ を $$ にエスケープする
-				// これにより VFS 側で `replacement.replace` が特殊文字として誤爆するのを防ぐ
-				if (item.tag === 'edit_file' && contentText.includes('<<<<SEARCH')) {
-					contentText = this._escapeRegexReplacement(contentText);
-				}
+				const contentText = this._extractContent(item.content);
 
 				const action = {
 					type: item.tag,
@@ -242,22 +235,6 @@
 			});
 
 			return [...others, ...edits, ...interrupts];
-		}
-
-		/**
-		 * Regexブロック内のReplacementパートにある `$` を `$$` にエスケープする
-		 */
-		_escapeRegexReplacement(content) {
-			// Regex: <<<<SEARCH (pattern) ==== (replacement) >>>>
-			// フラグ: g (複数ブロック対応)
-			return content.replace(
-				/(<<<<SEARCH\s*[\s\S]*?\s*====\s*)([\s\S]*?)(\s*>>>>)/g,
-				(match, prefix, replacement, suffix) => {
-					// JSのreplaceで $ は特殊意味を持つため、リテラルの $ ($$) に置換
-					const safeReplacement = replacement.replace(/\$/g, '$$$$');
-					return prefix + safeReplacement + suffix;
-				}
-			);
 		}
 
 		_extractContent(content) {
