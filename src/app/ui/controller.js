@@ -23,6 +23,7 @@
 
 			// Initialize Components
 			this.chat = new ChatComponent();
+			this.chat.setVfs(vfs); // ★ VFSを注入
 			this.editor = new EditorComponent();
 			this.mediaViewer = new MediaViewer(); // NEW
 			this.explorer = new ExplorerComponent(vfs); // No State injection

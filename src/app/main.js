@@ -225,27 +225,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 		ui.chat.setProcessing(true);
 
 		const content = [];
+		const CACHE_DIR = '.cache/media';
 
-		// 1. Attachments first (ファイル添付を先に処理)
+		// 1. Attachments first
 		for (const file of files) {
-			if (file.type.startsWith('text/') || file.name.match(/\.(js|py|html|json|css|md|txt)$/)) {
-				const textContent = await file.text();
-				content.push({
-					text: `<user_attachment name="${file.name}">\n${textContent}\n</user_attachment>`
-				});
-			} else {
-				const dataUrl = await fileToBase64(file);
-				const base64 = dataUrl.split(',')[1];
-				content.push({
-					inlineData: {
-						mimeType: file.type,
-						data: base64
-					}
-				});
+			const isText = file.type.startsWith('text/') || file.name.match(/\.(js|py|html|json|css|md|txt|xml|yml|sh)$/);
+			
+			// ファイル読み込み
+			const dataUrl = await fileToBase64(file); // data:mime;base64,...
+
+			// キャッシュディレクトリ確保
+			if (!vfs.exists(CACHE_DIR) && vfs.createDirectory) {
+				vfs.createDirectory(CACHE_DIR);
+			}
+
+			// ファイル保存 (バイナリもテキストもVFS上ではDataURLまたはテキストとして保存可能)
+			const timestamp = Date.now();
+			const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+			const path = `${CACHE_DIR}/${timestamp}_${safeName}`;
+
+			try {
+				if (isText) {
+					// テキストの場合は内容を展開してプロンプトに含める (AIが読めるように)
+					// 同時にVFSにも保存しておく（後で参照できるように）
+					const textContent = await file.text();
+					vfs.writeFile(path, textContent);
+					
+					content.push({
+						text: `<user_attachment name="${file.name}" path="${path}">\n${textContent}\n</user_attachment>`
+					});
+				} else {
+					// バイナリの場合はVFSに保存し、参照のみを渡す
+					vfs.writeFile(path, dataUrl); // DataURL形式で保存
+
+					content.push({
+						media: {
+							path: path,
+							mimeType: file.type || 'application/octet-stream',
+							metadata: {}
+						}
+					});
+
+					// user_inputの外に配置されるよう、独立したtextパーツとして表示用タグを追加してもよいが
+					// ここでは media オブジェクトだけで十分 (Projectorが処理する)
+				}
+			} catch (e) {
+				console.error(`Failed to save attachment: ${path}`, e);
+				alert(`Failed to upload ${file.name}: ${e.message}`);
+				ui.chat.setProcessing(false);
+				return;
 			}
 		}
 
-		// 2. User Text Input last (テキスト入力を後に処理)
+		// 2. User Text Input last
 		if (text) {
 			content.push({
 				text
@@ -269,9 +301,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 	});
 
 	ui.chat.on('clear', () => {
-		if (confirm("Clear chat history?")) {
+		if (confirm("Clear chat history and media cache?")) {
+			// 1. History Clear
 			state.history = [];
 			ui.chat.renderHistory([]);
+
+			// 2. Media Cache Purge
+			try {
+				const cacheDir = '.cache/media';
+				// ディレクトリごと削除してファイルをクリーンアップ
+				const msg = vfs.deleteDirectory(cacheDir);
+				console.log("[System] Cache cleared:", msg);
+			} catch (e) {
+				console.warn("[System] Failed to clear media cache:", e);
+			}
+
 			triggerAutoSave();
 		}
 	});

@@ -10,6 +10,7 @@
 		constructor() {
 			this.els = {};
 			this.events = {};
+			this.vfs = null; // ★ VFS参照
 			this.pendingUploads = [];
 			this.currentStreamEl = null;
 			this.currentStreamContent = "";
@@ -17,6 +18,10 @@
 			this._initElements();
 			this._bindEvents();
 			this._initResizer();
+		}
+
+		setVfs(vfs) {
+			this.vfs = vfs;
 		}
 
 		on(event, callback) {
@@ -311,10 +316,21 @@
 
 						body.appendChild(p);
 
-						if (item.output.image) {
+						// ★ 新しい media 形式
+						if (item.output.media) {
+							this._renderMediaFromVfs(body, item.output.media);
+						}
+						// 古い image 形式 (後方互換)
+						else if (item.output.image) {
 							this._appendMedia(body, item.output.image, item.output.mimeType);
 						}
-					} else if (item.inlineData) {
+					} 
+					// ★ ユーザー入力の media 形式
+					else if (item.media) {
+						this._renderMediaFromVfs(body, item.media);
+					}
+					// 古い inlineData 形式
+					else if (item.inlineData) {
 						this._appendMedia(body, item.inlineData.data, item.inlineData.mimeType);
 					}
 				});
@@ -323,16 +339,58 @@
 			this.els.chatHistory.appendChild(div);
 		}
 
-		_appendMedia(container, base64, mimeType) {
-			let mime = mimeType;
-			if (!mime) {
-				const match = base64.match(/^data:(.*?);base64,/);
-				if (match) {
-					mime = match[1];
-					base64 = base64.split(',')[1];
+		/**
+		 * VFSからメディアを読み込んで表示する
+		 */
+		_renderMediaFromVfs(container, mediaObj) {
+			if (!this.vfs) {
+				const div = document.createElement('div');
+				div.className = "text-xs text-gray-500 italic border border-gray-700 p-2 rounded mt-2";
+				div.textContent = `[Loading media: ${mediaObj.path}]`;
+				container.appendChild(div);
+				return;
+			}
+
+			try {
+				if (this.vfs.exists(mediaObj.path)) {
+					// readFileは DataURL (data:...) を返すと仮定
+					const content = this.vfs.readFile(mediaObj.path);
+					// DataURLそのものか、Base64部分のみかを判定して渡す
+					// _appendMediaはBase64部分を期待する場合とDataURLを許容する場合があるため、
+					// ここではDataURLをそのまま渡して _appendMedia 内でパースさせる
+					this._appendMedia(container, content, mediaObj.mimeType);
 				} else {
-					mime = 'image/png';
+					const div = document.createElement('div');
+					div.className = "flex items-center gap-2 text-xs text-gray-500 bg-red-900/10 border border-red-900/20 p-2 rounded mt-2";
+					div.innerHTML = `<span class="text-red-400">⚠️</span> <span class="line-through opacity-70">${mediaObj.path}</span> <span class="text-[10px] ml-auto">(File not found)</span>`;
+					div.title = "This file was deleted or the cache was cleared.";
+					container.appendChild(div);
 				}
+			} catch (e) {
+				console.error("Failed to render media from VFS:", e);
+				const div = document.createElement('div');
+				div.className = "text-xs text-red-400 p-2";
+				div.textContent = `Error loading image: ${e.message}`;
+				container.appendChild(div);
+			}
+		}
+
+		_appendMedia(container, base64OrDataUrl, mimeType) {
+			let mime = mimeType;
+			let base64 = base64OrDataUrl;
+
+			// DataURL形式 (data:...) ならパース
+			if (base64OrDataUrl.startsWith('data:')) {
+				const parts = base64OrDataUrl.split(',');
+				const meta = parts[0];
+				base64 = parts[1];
+				if (!mime) {
+					const match = meta.match(/:(.*?);/);
+					if (match) mime = match[1];
+				}
+			} else {
+				// Raw Base64の場合、mimeのフォールバック
+				if (!mime) mime = 'image/png';
 			}
 
 			if (mime.startsWith('image/')) {

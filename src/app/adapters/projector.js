@@ -17,8 +17,9 @@
 		}
 
 		async createContext(state) {
-			// 1. Historyの最適化
-			this._optimizeHistory(state.history);
+			// 1. Historyの最適化 (副作用あり: VFSからの削除を含む)
+			// ガベージコレクションのために VFS を渡す
+			this._optimizeHistory(state.history, state.vfs);
 
 			// APIキーの取得 (localStorageから)
 			const apiKey = localStorage.getItem('metaforge_api_key');
@@ -303,9 +304,9 @@
 
 		/**
 		 * 履歴内の古い画像を削除する（副作用メソッド）
-		 * 最新の1枚以外の画像データを削除し、プレースホルダーに置き換える
+		 * 最新の1枚以外の画像データをVFSおよび履歴から削除し、プレースホルダーに置き換える
 		 */
-		_optimizeHistory(history) {
+		_optimizeHistory(history, vfs) {
 			let foundLatestImage = false;
 
 			// 後ろからスキャン
@@ -313,21 +314,53 @@
 				const turn = history[i];
 				if (!Array.isArray(turn.content)) continue;
 
-				// ツール実行結果内の画像を探索
-				if (turn.meta && turn.meta.type === TurnType.TOOL_EXECUTION) {
-					turn.content.forEach(item => {
-						if (item.output && item.output.image) {
-							if (foundLatestImage) {
-								// 2枚目以降（古いもの）は削除
-								delete item.output.image;
-								item.output.log += "\n[System: Old screenshot removed to save memory]";
-							} else {
-								// 最新の1枚
-								foundLatestImage = true;
+				turn.content.forEach(item => {
+					// 1. 新しい media 形式 (VFS参照)
+					// Tool output (screenshot) or User input (upload)
+					const mediaObj = (item.output && item.output.media) ? item.output.media : item.media;
+
+					if (mediaObj) {
+						if (foundLatestImage) {
+							// 2枚目以降（古いもの）は削除
+							const path = mediaObj.path;
+
+							// VFSから物理削除
+							// 安全のため .cache/media/ 内のファイルのみを対象とする
+							if (vfs && path && path.includes('.cache/media/')) {
+								try {
+									if (vfs.exists(path)) {
+										vfs.deleteFile(path);
+										console.log(`[Projector] GC: Removed old media ${path}`);
+									}
+								} catch (e) {
+									console.warn(`[Projector] GC Failed for ${path}`, e);
+								}
 							}
+
+							// 履歴オブジェクトからの参照削除
+							if (item.output) {
+								delete item.output.media;
+								item.output.log = (item.output.log || "") + "\n[System: Old screenshot/media removed to save memory]";
+							} else {
+								delete item.media;
+								item.text = (item.text || "") + "\n[System: Old media removed]";
+							}
+						} else {
+							// 最新の1枚
+							foundLatestImage = true;
 						}
-					});
-				}
+					}
+
+					// 2. 古い image 形式 (Base64 Inline) - 後方互換
+					if (item.output && item.output.image) {
+						if (foundLatestImage) {
+							delete item.output.image;
+							item.output.log = (item.output.log || "") + "\n[System: Old screenshot removed to save memory]";
+						} else {
+							foundLatestImage = true;
+						}
+					}
+				});
 			}
 		}
 	}

@@ -77,8 +77,9 @@
 		}
 
 		open(path, content) {
-			if (path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
-				alert("Image preview is not supported in text editor.");
+			// Binary Guard: 画像以外のバイナリ形式も含めてブロック
+			if (path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|pdf|zip|tar|gz|7z|rar|mp3|wav|mp4|webm|ogg)$/i)) {
+				alert("Binary file editing is not supported in this editor.");
 				return;
 			}
 
