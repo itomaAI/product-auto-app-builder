@@ -6,7 +6,8 @@
 
 	class Compiler {
 		constructor() {
-			this.blobUrls = [];
+			this.blobUrls = []; // HTML用の一時URLリスト
+			this.assetCache = new Map(); // アセット用の永続キャッシュ { path: { url, updated_at } }
 		}
 
 		/**
@@ -16,15 +17,39 @@
 		 * @returns {Promise<string|null>} index.htmlのBlob URL
 		 */
 		async compile(vfs, entryPath = 'index.html') {
-			this.revokeAll(); // メモリリーク防止
+			// HTML用の古いBlobのみ破棄 (アセットはキャッシュ管理)
+			this.revokeHtmlBlobs();
 
-			const filePaths = vfs.listFiles();
+			// メタデータ付きでファイルリスト取得
+			const files = vfs.listFiles({ detail: true });
 			const urlMap = {};
+			const currentPaths = new Set(files.map(f => f.path));
 
-			// --- Phase 1: Assets (Non-HTML) のBlob化 ---
-			for (const path of filePaths) {
+			// --- Phase 0: Cache GC (VFSから削除されたファイルのキャッシュを破棄) ---
+			for (const [path, cached] of this.assetCache.entries()) {
+				if (!currentPaths.has(path)) {
+					URL.revokeObjectURL(cached.url);
+					this.assetCache.delete(path);
+				}
+			}
+
+			// --- Phase 1: Assets (Non-HTML) のBlob化とキャッシュ ---
+			for (const file of files) {
+				const path = file.path;
 				if (path.endsWith('.html')) continue;
 				if (this._isIgnored(path)) continue;
+
+				// キャッシュチェック (更新日時が一致すれば再利用)
+				const cached = this.assetCache.get(path);
+				if (cached && cached.updated_at === file.updated_at) {
+					urlMap[path] = cached.url;
+					continue;
+				}
+
+				// キャッシュが無効なら古いURLを破棄
+				if (cached) {
+					URL.revokeObjectURL(cached.url);
+				}
 
 				const content = vfs.readFile(path);
 				const mimeType = this.getMimeType(path);
@@ -40,14 +65,17 @@
 				}
 
 				const url = URL.createObjectURL(blob);
+				
+				// キャッシュ更新
+				this.assetCache.set(path, { url, updated_at: file.updated_at });
 				urlMap[path] = url;
-				this.blobUrls.push(url);
 			}
 
-			// --- Phase 2: HTML の処理 ---
+			// --- Phase 2: HTML の処理 (リンク解決のため毎回生成) ---
 			let entryPointUrl = null;
 
-			for (const path of filePaths) {
+			for (const file of files) {
+				const path = file.path;
 				if (!path.endsWith('.html')) continue;
 				if (this._isIgnored(path)) continue;
 
@@ -77,12 +105,17 @@
 				if (urlMap['index.html']) {
 					entryPointUrl = urlMap['index.html'];
 				} else {
-					const firstHtml = filePaths.find(p => p.endsWith('.html') && !this._isIgnored(p));
-					if (firstHtml) entryPointUrl = urlMap[firstHtml];
+					const firstHtml = files.find(f => f.path.endsWith('.html') && !this._isIgnored(f.path));
+					if (firstHtml) entryPointUrl = urlMap[firstHtml.path];
 				}
 			}
 
 			return entryPointUrl;
+		}
+
+		revokeHtmlBlobs() {
+			this.blobUrls.forEach(url => URL.revokeObjectURL(url));
+			this.blobUrls = [];
 		}
 
 		/**
@@ -237,8 +270,11 @@ window.addEventListener('message', async (e) => {
 		}
 
 		revokeAll() {
-			this.blobUrls.forEach(url => URL.revokeObjectURL(url));
-			this.blobUrls = [];
+			this.revokeHtmlBlobs();
+			for (const cached of this.assetCache.values()) {
+				URL.revokeObjectURL(cached.url);
+			}
+			this.assetCache.clear();
 		}
 	}
 

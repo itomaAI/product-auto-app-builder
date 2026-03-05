@@ -88,10 +88,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 		currentProjectId = project.id;
 		currentProjectName = project.name;
 
-		// VFS Restore
+		// VFS Restore (Migration via loadFiles)
 		Object.keys(vfs.files).forEach(k => delete vfs.files[k]);
-		Object.assign(vfs.files, project.files);
-		vfs.notify();
+		vfs.loadFiles(project.files || {});
+		// notify is called within loadFiles
 
 		// History Restore
 		state.history = project.chatHistory || [];
@@ -383,8 +383,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	} catch (e) {
 		console.error("Boot Error:", e);
-		Object.assign(vfs.files, Config.DEFAULT_FILES);
-		vfs.notify();
+		vfs.loadFiles(Config.DEFAULT_FILES);
 		ui.refreshPreview();
 	}
 });
