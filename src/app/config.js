@@ -141,8 +141,9 @@ This app will run locally without a backend server.
    - Do NOT use \`fetch('./data.json')\`.
    - **Solution**: Define data in a JavaScript file as a global variable.
 
-3. **Images**:
-   - Use standard \`<img src="filename.png">\`. The compiler will inline it automatically.
+3. **Images & Assets**:
+   - Use standard \`<img src="filename.png">\` or CSS \`background-image: url("./path/to/image.png")\`. The compiler will automatically resolve relative paths and process them for the preview.
+   - For JavaScript dynamic loading, manual resolution is still not supported (MetaOS Bridge is not available), so prefer static references in HTML/CSS.
 
 4. **Libraries**:
    - Use CDN links (cdnjs, unpkg).
