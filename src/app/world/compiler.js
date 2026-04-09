@@ -11,6 +11,32 @@
 		}
 
 		/**
+		 * Helper: パス文字列を { basePath, search, hash } に分解する
+		 * @param {string} path 
+		 */
+		_parsePath(path) {
+			if (!path) return { basePath: '', search: '', hash: '' };
+
+			let basePath = path;
+			let search = '';
+			let hash = '';
+
+			const hashIdx = basePath.indexOf('#');
+			if (hashIdx !== -1) {
+				hash = basePath.substring(hashIdx);
+				basePath = basePath.substring(0, hashIdx);
+			}
+
+			const queryIdx = basePath.indexOf('?');
+			if (queryIdx !== -1) {
+				search = basePath.substring(queryIdx);
+				basePath = basePath.substring(0, queryIdx);
+			}
+
+			return { basePath, search, hash };
+		}
+
+		/**
 		 * VFSの状態からプレビュー用のエントリーポイントURLを生成
 		 * @param {VirtualFileSystem} vfs 
 		 * @param {string} entryPath - デフォルトのエントリーポイント
@@ -33,10 +59,10 @@
 				}
 			}
 
-			// --- Phase 1: Assets (Non-HTML) のBlob化とキャッシュ ---
+			// --- Phase 1: Assets (Non-HTML, Non-CSS) のBlob化とキャッシュ ---
 			for (const file of files) {
 				const path = file.path;
-				if (path.endsWith('.html')) continue;
+				if (path.endsWith('.html') || path.endsWith('.css')) continue;
 				if (this._isIgnored(path)) continue;
 
 				// キャッシュチェック (更新日時が一致すれば再利用)
@@ -69,6 +95,22 @@
 				// キャッシュ更新
 				this.assetCache.set(path, { url, updated_at: file.updated_at });
 				urlMap[path] = url;
+			}
+
+			// --- Phase 1.5: CSS の処理 (url() 参照を置換するため動的生成) ---
+			for (const file of files) {
+				const path = file.path;
+				if (!path.endsWith('.css')) continue;
+				if (this._isIgnored(path)) continue;
+
+				let cssContent = vfs.readFile(path);
+				cssContent = this._processCssReferences(cssContent, urlMap, path);
+
+				const blob = new Blob([cssContent], { type: 'text/css' });
+				const url = URL.createObjectURL(blob);
+
+				urlMap[path] = url;
+				this.blobUrls.push(url);
 			}
 
 			// --- Phase 2: HTML の処理 (リンク解決のため毎回生成) ---
@@ -134,26 +176,25 @@
 			const parser = new DOMParser();
 			const doc = parser.parseFromString(html, 'text/html');
 
-			// カレントディレクトリの取得
-			const currentDir = currentFilePath.includes('/') ?
-				currentFilePath.substring(0, currentFilePath.lastIndexOf('/')) :
-				'';
-
 			const replaceAttr = (selector, attr) => {
 				doc.querySelectorAll(selector).forEach(el => {
 					const originalVal = el.getAttribute(attr);
 					if (!originalVal) return;
 
-					// 1. 完全一致 (元コードのロジック + ルートパス指定)
-					if (urlMap[originalVal]) {
-						el.setAttribute(attr, urlMap[originalVal]);
+					const { basePath, search, hash } = this._parsePath(originalVal);
+					const suffix = search + hash;
+					const targetPath = basePath === '' ? currentFilePath : basePath;
+
+					// 1. 完全一致 
+					if (urlMap[targetPath]) {
+						el.setAttribute(attr, urlMap[targetPath] + suffix);
 						return;
 					}
 
-					// 2. 相対パス解決 (新機能)
-					const resolvedPath = this._resolvePath(currentDir, originalVal);
+					// 2. 相対パス解決
+					const resolvedPath = this._resolvePath(currentFilePath, basePath);
 					if (resolvedPath && urlMap[resolvedPath]) {
-						el.setAttribute(attr, urlMap[resolvedPath]);
+						el.setAttribute(attr, urlMap[resolvedPath] + suffix);
 					}
 				});
 			};
@@ -162,14 +203,52 @@
 			replaceAttr('link[href]', 'href');
 			replaceAttr('img[src]', 'src');
 			replaceAttr('a[href]', 'href');
+			replaceAttr('iframe[src]', 'src');
+
+			// インラインスタイル (style属性) 内の url(...) も置換する
+			doc.querySelectorAll('[style]').forEach(el => {
+				const styleContent = el.getAttribute('style');
+				if (styleContent && styleContent.includes('url(')) {
+					const resolvedStyle = this._processCssReferences(styleContent, urlMap, currentFilePath);
+					el.setAttribute('style', resolvedStyle);
+				}
+			});
 
 			return doc.documentElement.outerHTML;
 		}
 
 		/**
+		 * CSSファイルやインラインスタイル内の url() 参照を Blob URL に置換する
+		 */
+		_processCssReferences(cssContent, urlMap, currentFilePath) {
+			const urlRegex = /url\(\s*(['"]?)(.*?)\1\s*\)/g;
+
+			return cssContent.replace(urlRegex, (match, quote, relPath) => {
+				if (!relPath || relPath.match(/^(https?:|data:|blob:)/)) {
+					return match;
+				}
+
+				const { basePath, search, hash } = this._parsePath(relPath);
+				const suffix = search + hash;
+				const targetPath = basePath === '' ? currentFilePath : basePath;
+				
+				if (urlMap[targetPath]) {
+					return `url(${quote}${urlMap[targetPath]}${suffix}${quote})`;
+				}
+
+				const resolved = this._resolvePath(currentFilePath, basePath);
+				if (resolved && urlMap[resolved]) {
+					return `url(${quote}${urlMap[resolved]}${suffix}${quote})`;
+				}
+
+				return match;
+			});
+		}
+
+		/**
 		 * 相対パス解決ロジック
 		 */
-		_resolvePath(baseDir, relativePath) {
+		_resolvePath(currentFilePath, relativePath) {
 			// プロトコル付きやハッシュリンクは無視
 			if (relativePath.match(/^(https?:|data:|blob:|mailto:|javascript:|#)/)) return null;
 
@@ -178,8 +257,12 @@
 				return relativePath.substring(1);
 			}
 
+			const currentDir = currentFilePath.includes('/') ?
+				currentFilePath.substring(0, currentFilePath.lastIndexOf('/')) :
+				'';
+
 			// 相対パス計算
-			const stack = baseDir ? baseDir.split('/') : [];
+			const stack = currentDir ? currentDir.split('/') : [];
 			const parts = relativePath.split('/');
 
 			for (const part of parts) {
