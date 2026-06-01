@@ -6,7 +6,7 @@
     // --- Configuration ---
     const CONFIG = {
         // Model Settings
-        MODEL_NAME: "gemini-3-pro-preview",
+        MODEL_NAME: "gemini-3.5-flash",
         
         // AI Response Language
         LANGUAGE: "Japanese",
