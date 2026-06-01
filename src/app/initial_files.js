@@ -6,7 +6,7 @@
     // --- Reference Content ---
 
     const REF_GEMINI_JS = `
-// The current latest models are gemini-3.5-flash or gemini-3-flash-preview.
+// The current latest models are gemini-3.1-pro-preview or gemini-3-flash-preview.
 // You must use one of them.
 
 // src/app/adapters/gemini.js
